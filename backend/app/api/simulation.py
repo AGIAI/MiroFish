@@ -332,7 +332,7 @@ def _check_simulation_prepared(simulation_id: str) -> tuple:
                 except Exception as e:
                     logger.warning(f"Failed to auto-update status: {e}")
             
-            logger.info(f"模拟 {simulation_id} Check result: preparation complete (status={status}, config_generated={config_generated})")
+            logger.info(f"Simulation {simulation_id} check result: preparation complete (status={status}, config_generated={config_generated})")
             return True, {
                 "status": status,
                 "entities_count": state_data.get("entities_count", 0),
@@ -344,7 +344,7 @@ def _check_simulation_prepared(simulation_id: str) -> tuple:
                 "existing_files": existing_files
             }
         else:
-            logger.warning(f"模拟 {simulation_id} Check result: preparation not complete (status={status}, config_generated={config_generated})")
+            logger.warning(f"Simulation {simulation_id} check result: preparation not complete (status={status}, config_generated={config_generated})")
             return False, {
                 "reason": f"Status not in prepared list or config_generated is false: status={status}, config_generated={config_generated}",
                 "status": status,
@@ -377,11 +377,11 @@ def prepare_simulation():
     
     Request (JSON):
         {
-            "simulation_id": "sim_xxxx",                   // Required，模拟ID
-            "entity_types": ["Student", "PublicFigure"],  // Optional，指定实体types
-            "use_llm_for_profiles": true,                 // Optional，是否用LLM生成人设
-            "parallel_profile_count": 5,                  // Optional，并行生成人设数量，默认5
-            "force_regenerate": false                     // Optional，强制重新生成，默认false
+            "simulation_id": "sim_xxxx",                   // Required, simulation ID
+            "entity_types": ["Student", "PublicFigure"],  // Optional, specify entity types
+            "use_llm_for_profiles": true,                 // Optional, whether to use LLM for profile generation
+            "parallel_profile_count": 5,                  // Optional, parallel profile generation count, default 5
+            "force_regenerate": false                     // Optional, force regeneration, default false
         }
     
     Response:
@@ -426,11 +426,11 @@ def prepare_simulation():
         
         # Check if already prepared (avoid redundant generation)
         if not force_regenerate:
-            logger.debug(f"检查模拟 {simulation_id} whether already prepared...")
+            logger.debug(f"Checking simulation {simulation_id} whether already prepared...")
             is_prepared, prepare_info = _check_simulation_prepared(simulation_id)
             logger.debug(f"Check result: is_prepared={is_prepared}, prepare_info={prepare_info}")
             if is_prepared:
-                logger.info(f"模拟 {simulation_id} already prepared, skipping redundant generation")
+                logger.info(f"Simulation {simulation_id} already prepared, skipping redundant generation")
                 return jsonify({
                     "success": True,
                     "data": {
@@ -442,7 +442,7 @@ def prepare_simulation():
                     }
                 })
             else:
-                logger.info(f"模拟 {simulation_id} not prepared, will start preparation task")
+                logger.info(f"Simulation {simulation_id} not prepared, will start preparation task")
         
         # Get required info from project
         project = ProjectManager.get_project(state.project_id)
@@ -483,7 +483,7 @@ def prepare_simulation():
             state.entity_types = list(filtered_preview.entity_types)
             logger.info(f"Expected entity count: {filtered_preview.filtered_count}, types: {filtered_preview.entity_types}")
         except Exception as e:
-            logger.warning(f"Synchronously getting entity count失败（将在后台任务中重试）: {e}")
+            logger.warning(f"Synchronously getting entity count failed (will retry in background task): {e}")
             # Failure does not block subsequent flow; background task will retry
         
         # Create async task
@@ -615,7 +615,7 @@ def prepare_simulation():
                 "message": "Preparation task started, check progress via /api/simulation/prepare/status",
                 "already_prepared": False,
                 "expected_entities_count": state.entities_count,  # Expected total Agent count
-                "entity_types": state.entity_types  # 实体types列表
+                "entity_types": state.entity_types  # Entity types list
             }
         })
         
@@ -645,8 +645,8 @@ def get_prepare_status():
     
     Request (JSON):
         {
-            "task_id": "task_xxxx",          // Optional，prepare返回的task_id
-            "simulation_id": "sim_xxxx"      // Optional，模拟ID（用于检查已完成的准备）
+            "task_id": "task_xxxx",          // Optional, task_id returned by prepare
+            "simulation_id": "sim_xxxx"      // Optional, simulation ID (for checking completed preparation)
         }
     
     Response:
@@ -670,7 +670,7 @@ def get_prepare_status():
         task_id = data.get('task_id')
         simulation_id = data.get('simulation_id')
         
-        # 如果提供了simulation_id，先检查whether already prepared
+        # If simulation_id is provided, first check whether already prepared
         if simulation_id:
             is_prepared, prepare_info = _check_simulation_prepared(simulation_id)
             if is_prepared:
@@ -709,7 +709,7 @@ def get_prepare_status():
         task = task_manager.get_task(task_id)
         
         if not task:
-            # Task does not exist，但如果有simulation_id，检查whether already prepared
+            # Task does not exist, but if simulation_id is available, check whether already prepared
             if simulation_id:
                 is_prepared, prepare_info = _check_simulation_prepared(simulation_id)
                 if is_prepared:
@@ -988,7 +988,7 @@ def get_simulation_profiles(simulation_id: str):
     Get simulation Agent Profiles
     
     Query parameters:
-        platform: 平台types（reddit/twitter，默认reddit）
+        platform: platform type (reddit/twitter, default reddit)
     """
     try:
         platform = request.args.get('platform', 'reddit')
@@ -1023,7 +1023,7 @@ def get_simulation_profiles(simulation_id: str):
 @simulation_bp.route('/<simulation_id>/profiles/realtime', methods=['GET'])
 def get_simulation_profiles_realtime(simulation_id: str):
     """
-    实时Get simulation Agent Profiles（用于在生成过程中实时查看进度）
+    Real-time get simulation Agent Profiles (for viewing progress during generation in real-time)
     
     Differences from /profiles endpoint:
     - Reads files directly, bypasses SimulationManager
@@ -1031,7 +1031,7 @@ def get_simulation_profiles_realtime(simulation_id: str):
     - Returns additional metadata (e.g., file modification time, whether generation is in progress)
     
     Query parameters:
-        platform: 平台types（reddit/twitter，默认reddit）
+        platform: platform type (reddit/twitter, default reddit)
     
     Response:
         {
@@ -1122,7 +1122,7 @@ def get_simulation_profiles_realtime(simulation_id: str):
         })
         
     except Exception as e:
-        logger.error(f"实时Failed to get profiles: {str(e)}")
+        logger.error(f"Real-time failed to get profiles: {str(e)}")
         return jsonify({
             "success": False,
             "error": str(e),
@@ -1450,11 +1450,11 @@ def start_simulation():
 
     Request (JSON):
         {
-            "simulation_id": "sim_xxxx",          // Required，模拟ID
-            "platform": "parallel",                // Optional: twitter / reddit / parallel (默认)
-            "max_rounds": 100,                     // Optional: 最大模拟轮数，用于截断过长的模拟
-            "enable_graph_memory_update": false,   // Optional: 是否将Agent活动动态更新到Zep图谱记忆
-            "force": false                         // Optional: 强制重新开始（会停止运行中的模拟并清理日志）
+            "simulation_id": "sim_xxxx",          // Required, simulation ID
+            "platform": "parallel",                // Optional: twitter / reddit / parallel (default)
+            "max_rounds": 100,                     // Optional: max simulation rounds, used to truncate overly long simulations
+            "enable_graph_memory_update": false,   // Optional: whether to dynamically update Agent activities to Zep graph memory
+            "force": false                         // Optional: force restart (will stop running simulation and clean up logs)
         }
 
     About force parameter:
@@ -1517,7 +1517,7 @@ def start_simulation():
         if platform not in ['twitter', 'reddit', 'parallel']:
             return jsonify({
                 "success": False,
-                "error": f"无效的平台types: {platform}，options: twitter/reddit/parallel"
+                "error": f"Invalid platform type: {platform}, options: twitter/reddit/parallel"
             }), 400
 
         # Check if simulation is ready
@@ -1566,7 +1566,7 @@ def start_simulation():
                     force_restarted = True
 
                 # Process does not exist or has ended, reset status to ready
-                logger.info(f"模拟 {simulation_id} preparation complete, resetting status to ready (original status: {state.status.value}）")
+                logger.info(f"Simulation {simulation_id} preparation complete, resetting status to ready (original status: {state.status.value})")
                 state.status = SimulationStatus.READY
                 manager._save_simulation_state(state)
             else:
@@ -1643,7 +1643,7 @@ def stop_simulation():
     
     Request (JSON):
         {
-            "simulation_id": "sim_xxxx"  // Required，模拟ID
+            "simulation_id": "sim_xxxx"  // Required, simulation ID
         }
     
     Response:
@@ -1763,7 +1763,7 @@ def get_run_status_detail(simulation_id: str):
     For frontend real-time display
     
     Query parameters:
-        platform: 过滤平台（twitter/reddit，options）
+        platform: filter by platform (twitter/reddit, optional)
     
     Response:
         {
@@ -1985,7 +1985,7 @@ def get_simulation_posts(simulation_id: str):
     Get posts from simulation
     
     Query parameters:
-        platform: 平台types（twitter/reddit）
+        platform: platform type (twitter/reddit)
         limit: Return count (default 50)
         offset: Offset
     
@@ -2063,7 +2063,7 @@ def get_simulation_comments(simulation_id: str):
     Get comments from simulation (Reddit only)
     
     Query parameters:
-        post_id: 过滤帖子ID（options）
+        post_id: filter by post ID (optional)
         limit: Return count
         offset: Offset
     """
