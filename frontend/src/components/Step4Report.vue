@@ -739,7 +739,7 @@ const parseInterview = (text) => {
         // Format 2: - Select name(index X): reason
         // e.g.: - Select parent_601(index 0): As a parent representative...
         if (!headerMatch) {
-          headerMatch = line.match(/^-\s*(?:Select|选择)([^（(]+)(?:[（(]index\s*=?\s*\d+[)）])?[：:]\s*(.*)/)
+          headerMatch = line.match(/^-\s*Select([^(]+)(?:[(]index\s*=?\s*\d+[)])?[：:]\s*(.*)/)
           if (headerMatch) {
             name = headerMatch[1].trim()
             reasonStart = headerMatch[2]
@@ -764,7 +764,7 @@ const parseInterview = (text) => {
           // Start new person
           currentName = name
           currentReason = reasonStart ? [reasonStart.trim()] : []
-        } else if (currentName && line.trim() && !line.match(/^Not selected|^In summary|^Final selection|^未选|^综上|^最终选择/)) {
+        } else if (currentName && line.trim() && !line.match(/^Not selected|^In summary|^Final selection/)) {
           // Continuation of reason (exclude ending summary paragraphs)
           currentReason.push(line.trim())
         }
@@ -1336,13 +1336,13 @@ const InterviewDisplay = {
       if (isPlaceholderText(answerText)) return ['']
 
       // Support two numbering formats:
-      // 1. "QuestionX:" or "问题X:" (question numbering format)
+      // 1. "QuestionX:" (question numbering format)
       // 2. "1. " or "\n1. " (number+dot, legacy format compat)
       let matches = []
       let match
 
-      // Try "QuestionX:" and "问题X：" formats
-      const cnPattern = /(?:^|[\r\n]+)(?:Question|问题)(\d+)[：:]\s*/g
+      // Try "QuestionX:" format
+      const cnPattern = /(?:^|[\r\n]+)Question(\d+)[：:]\s*/g
       while ((match = cnPattern.exec(answerText)) !== null) {
         matches.push({
           num: parseInt(match[1]),
@@ -1366,7 +1366,7 @@ const InterviewDisplay = {
       // If no numbering found or only one, return whole text
       if (matches.length <= 1) {
         const cleaned = answerText
-          .replace(/^(?:Question|问题)\d+[：:]\s*/, '')
+          .replace(/^Question\d+[：:]\s*/, '')
           .replace(/^\d+\.\s+/, '')
           .trim()
         return [cleaned || answerText]
@@ -2097,8 +2097,8 @@ const extractFinalContent = (response) => {
     return finalAnswerMatch[1].trim()
   }
   
-  // Try finding content after Chinese final answer marker
-  const chineseFinalMatch = response.match(/(?:最终答案|Final Answer)[:：]\s*\n*([\s\S]*)$/i)
+  // Try finding content after "Final Answer" marker
+  const chineseFinalMatch = response.match(/Final Answer[:：]\s*\n*([\s\S]*)$/i)
   if (chineseFinalMatch) {
     return chineseFinalMatch[1].trim()
   }
