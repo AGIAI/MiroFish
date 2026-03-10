@@ -1,35 +1,35 @@
 <template>
   <div class="home-container">
-    <!-- 顶部导航栏 -->
-    <nav class="navbar">
-      <div class="nav-brand">MIROFISH</div>
-      <div class="nav-links">
-        <a href="https://github.com/666ghj/MiroFish" target="_blank" class="github-link">
-          访问我们的Github主页 <span class="arrow">↗</span>
+    <!-- Top Navigation Bar -->
+    <nav class=”navbar”>
+      <div class=”nav-brand”>MIROFISH</div>
+      <div class=”nav-links”>
+        <a href=”https://github.com/666ghj/MiroFish” target=”_blank” class=”github-link”>
+          Visit our Github page <span class=”arrow”>↗</span>
         </a>
       </div>
     </nav>
 
-    <div class="main-content">
-      <!-- 上半部分：Hero 区域 -->
-      <section class="hero-section">
-        <div class="hero-left">
-          <div class="tag-row">
-            <span class="orange-tag">简洁通用的群体智能引擎</span>
-            <span class="version-text">/ v0.1-预览版</span>
+    <div class=”main-content”>
+      <!-- Top Half: Hero Section -->
+      <section class=”hero-section”>
+        <div class=”hero-left”>
+          <div class=”tag-row”>
+            <span class=”orange-tag”>Versatile Swarm Intelligence Engine</span>
+            <span class=”version-text”>/ v0.1-Preview</span>
           </div>
-          
-          <h1 class="main-title">
-            上传任意报告<br>
-            <span class="gradient-text">即刻推演未来</span>
+
+          <h1 class=”main-title”>
+            Upload Any Report<br>
+            <span class=”gradient-text”>Simulate the Future Instantly</span>
           </h1>
-          
-          <div class="hero-desc">
+
+          <div class=”hero-desc”>
             <p>
-              即使只有一段文字，<span class="highlight-bold">MiroFish</span> 也能基于其中的现实种子，全自动生成与之对应的至多<span class="highlight-orange">百万级Agent</span>构成的平行世界。通过上帝视角注入变量，在复杂的群体交互中寻找动态环境下的<span class="highlight-code">“局部最优解”</span>
+              Even with just a piece of text, <span class=”highlight-bold”>MiroFish</span> can extract reality seeds and auto-generate a parallel world with up to <span class=”highlight-orange”>millions of Agents</span>. Inject variables from a god's-eye view and find <span class=”highlight-code”>”local optima”</span> through complex group interactions in dynamic environments.
             </p>
-            <p class="slogan-text">
-              让未来在 Agent 群中预演，让决策在百战后胜出<span class="blinking-cursor">_</span>
+            <p class=”slogan-text”>
+              Let the future rehearse among Agents, let decisions prevail after countless trials<span class=”blinking-cursor”>_</span>
             </p>
           </div>
            
@@ -48,84 +48,84 @@
         </div>
       </section>
 
-      <!-- 下半部分：双栏布局 -->
+      <!-- Bottom Half: Two-Column Layout -->
       <section class="dashboard-section">
-        <!-- 左栏：状态与步骤 -->
+        <!-- Left Column: Status & Steps -->
         <div class="left-panel">
           <div class="panel-header">
-            <span class="status-dot">■</span> 系统状态
+            <span class="status-dot">■</span> System Status
           </div>
-          
-          <h2 class="section-title">准备就绪</h2>
+
+          <h2 class="section-title">Ready</h2>
           <p class="section-desc">
-            预测引擎待命中，可上传多份非结构化数据以初始化模拟序列
+            Prediction engine on standby. Upload unstructured data to initialize a simulation sequence.
           </p>
-          
-          <!-- 数据指标卡片 -->
+
+          <!-- Data Metric Cards -->
           <div class="metrics-row">
             <div class="metric-card">
-              <div class="metric-value">低成本</div>
-              <div class="metric-label">常规模拟平均5$/次</div>
+              <div class="metric-value">Low Cost</div>
+              <div class="metric-label">Avg. $5 per standard simulation</div>
             </div>
             <div class="metric-card">
-              <div class="metric-value">高可用</div>
-              <div class="metric-label">最多百万级Agent模拟</div>
+              <div class="metric-value">Scalable</div>
+              <div class="metric-label">Up to millions of Agents</div>
             </div>
           </div>
 
-          <!-- 项目模拟步骤介绍 (新增区域) -->
+          <!-- Workflow Steps Introduction -->
           <div class="steps-container">
             <div class="steps-header">
-               <span class="diamond-icon">◇</span> 工作流序列
+               <span class="diamond-icon">◇</span> Workflow Sequence
             </div>
             <div class="workflow-list">
               <div class="workflow-item">
                 <span class="step-num">01</span>
                 <div class="step-info">
-                  <div class="step-title">图谱构建</div>
-                  <div class="step-desc">现实种子提取 & 个体与群体记忆注入 & GraphRAG构建</div>
+                  <div class="step-title">Graph Building</div>
+                  <div class="step-desc">Reality seed extraction & Individual/group memory injection & GraphRAG construction</div>
                 </div>
               </div>
               <div class="workflow-item">
                 <span class="step-num">02</span>
                 <div class="step-info">
-                  <div class="step-title">环境搭建</div>
-                  <div class="step-desc">实体关系抽取 & 人设生成 & 环境配置Agent注入仿真参数</div>
+                  <div class="step-title">Environment Setup</div>
+                  <div class="step-desc">Entity-relation extraction & Profile generation & Environment config with Agent simulation parameters</div>
                 </div>
               </div>
               <div class="workflow-item">
                 <span class="step-num">03</span>
                 <div class="step-info">
-                  <div class="step-title">开始模拟</div>
-                  <div class="step-desc">双平台并行模拟 & 自动解析预测需求 & 动态更新时序记忆</div>
+                  <div class="step-title">Run Simulation</div>
+                  <div class="step-desc">Dual-platform parallel simulation & Auto-parse prediction requirements & Dynamic temporal memory updates</div>
                 </div>
               </div>
               <div class="workflow-item">
                 <span class="step-num">04</span>
                 <div class="step-info">
-                  <div class="step-title">报告生成</div>
-                  <div class="step-desc">ReportAgent拥有丰富的工具集与模拟后环境进行深度交互</div>
+                  <div class="step-title">Report Generation</div>
+                  <div class="step-desc">ReportAgent with rich toolset deeply interacts with the post-simulation environment</div>
                 </div>
               </div>
               <div class="workflow-item">
                 <span class="step-num">05</span>
                 <div class="step-info">
-                  <div class="step-title">深度互动</div>
-                  <div class="step-desc">与模拟世界中的任意一位进行对话 & 与ReportAgent进行对话</div>
+                  <div class="step-title">Deep Interaction</div>
+                  <div class="step-desc">Chat with any individual in the simulated world & Converse with ReportAgent</div>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- 右栏：交互控制台 -->
+        <!-- Right Column: Interactive Console -->
         <div class="right-panel">
           <div class="console-box">
-            <!-- 上传区域 -->
+            <!-- Upload Area -->
             <div class="console-section">
               <div class="console-header">
-                <span class="console-label">01 / 现实种子</span>
-                <span class="console-meta">支持格式: PDF, MD, TXT</span>
+                <span class="console-label">01 / Reality Seeds</span>
+                <span class="console-meta">Supported formats: PDF, MD, TXT</span>
               </div>
               
               <div 
@@ -148,8 +148,8 @@
                 
                 <div v-if="files.length === 0" class="upload-placeholder">
                   <div class="upload-icon">↑</div>
-                  <div class="upload-title">拖拽文件上传</div>
-                  <div class="upload-hint">或点击浏览文件系统</div>
+                  <div class="upload-title">Drag & drop files to upload</div>
+                  <div class="upload-hint">or click to browse file system</div>
                 </div>
                 
                 <div v-else class="file-list">

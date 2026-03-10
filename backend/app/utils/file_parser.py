@@ -1,6 +1,6 @@
 """
-文件解析工具
-支持PDF、Markdown、TXT文件的文本提取
+File Parsing Utility
+Supports text extraction from PDF, Markdown, and TXT files
 """
 
 import os
@@ -10,29 +10,29 @@ from typing import List, Optional
 
 def _read_text_with_fallback(file_path: str) -> str:
     """
-    读取文本文件，UTF-8失败时自动探测编码。
-    
-    采用多级回退策略：
-    1. 首先尝试 UTF-8 解码
-    2. 使用 charset_normalizer 检测编码
-    3. 回退到 chardet 检测编码
-    4. 最终使用 UTF-8 + errors='replace' 兜底
-    
+    Read a text file, automatically detecting encoding if UTF-8 fails.
+
+    Uses a multi-level fallback strategy:
+    1. First try UTF-8 decoding
+    2. Use charset_normalizer to detect encoding
+    3. Fall back to chardet for encoding detection
+    4. Final fallback: UTF-8 with errors='replace'
+
     Args:
-        file_path: 文件路径
-        
+        file_path: File path
+
     Returns:
-        解码后的文本内容
+        Decoded text content
     """
     data = Path(file_path).read_bytes()
     
-    # 首先尝试 UTF-8
+    # First try UTF-8
     try:
         return data.decode('utf-8')
     except UnicodeDecodeError:
         pass
     
-    # 尝试使用 charset_normalizer 检测编码
+    # Try using charset_normalizer to detect encoding
     encoding = None
     try:
         from charset_normalizer import from_bytes
