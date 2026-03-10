@@ -58,8 +58,8 @@ export function getGraphData(graphId) {
 }
 
 /**
- * 获取项目信息
- * @param {String} projectId - 项目ID
+ * Get project information
+ * @param {String} projectId - Project ID
  * @returns {Promise}
  */
 export function getProject(projectId) {

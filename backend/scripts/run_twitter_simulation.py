@@ -1,16 +1,16 @@
 """
-OASIS Twitter模拟预设脚本
-此脚本读取配置文件中的参数来执行模拟，实现全程自动化
+OASIS Twitter Simulation Preset Script
+Reads parameters from config file to run the simulation in a fully automated manner.
 
-功能特性:
-- 完成模拟后不立即关闭环境，进入等待命令模式
-- 支持通过IPC接收Interview命令
-- 支持单个Agent采访和批量采访
-- 支持远程关闭环境命令
+Features:
+- Does not close the environment immediately after simulation; enters command-waiting mode
+- Supports receiving Interview commands via IPC
+- Supports single Agent interview and batch interview
+- Supports remote environment shutdown command
 
-使用方式:
+Usage:
     python run_twitter_simulation.py --config /path/to/simulation_config.json
-    python run_twitter_simulation.py --config /path/to/simulation_config.json --no-wait  # 完成后立即关闭
+    python run_twitter_simulation.py --config /path/to/simulation_config.json --no-wait  # Close immediately after completion
 """
 
 import argparse
