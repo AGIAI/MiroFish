@@ -190,7 +190,7 @@ const checkAndStopRunningSimulation = async () => {
       try {
         const closeRes = await closeSimulationEnv({ 
           simulation_id: currentSimulationId.value,
-          timeout: 10  // 10秒超时
+          timeout: 10  // 10-second timeout
         })
         
         if (closeRes.success) {

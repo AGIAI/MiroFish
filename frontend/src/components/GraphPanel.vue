@@ -550,7 +550,7 @@ const renderGraph = () => {
       return { x: (sx + tx) / 2, y: (sy + ty) / 2 }
     }
     
-    // 二次贝塞尔曲线的中点 t=0.5
+    // Quadratic Bezier curve midpoint at t=0.5
     const dx = tx - sx, dy = ty - sy
     const dist = Math.sqrt(dx * dx + dy * dy)
     const pairTotal = d.pairTotal || 1
@@ -561,7 +561,7 @@ const renderGraph = () => {
     const cx = (sx + tx) / 2 + offsetX
     const cy = (sy + ty) / 2 + offsetY
     
-    // 二次贝塞尔曲线公式 B(t) = (1-t)²P0 + 2(1-t)tP1 + t²P2, t=0.5
+    // Quadratic Bezier formula B(t) = (1-t)²P0 + 2(1-t)tP1 + t²P2, t=0.5
     const midX = 0.25 * sx + 0.5 * cx + 0.25 * tx
     const midY = 0.25 * sy + 0.5 * cy + 0.25 * ty
     
@@ -577,7 +577,7 @@ const renderGraph = () => {
     .style('cursor', 'pointer')
     .on('click', (event, d) => {
       event.stopPropagation()
-      // 重置之前选中边的样式
+      // Reset previously selected edge styles
       linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
       linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
       linkLabels.attr('fill', '#666')
@@ -590,7 +590,7 @@ const renderGraph = () => {
       }
     })
 
-  // Link labels background (白色背景使文字更清晰)
+  // Link labels background (white bg for better readability)
   const linkLabelBg = linkGroup.selectAll('rect')
     .data(edges)
     .enter().append('rect')
@@ -643,7 +643,7 @@ const renderGraph = () => {
       }
     })
   
-  // 保存引用供外部控制显隐
+  // Save reference for external visibility control
   linkLabelsRef = linkLabels
   linkLabelBgRef = linkLabelBg
 
@@ -661,7 +661,7 @@ const renderGraph = () => {
     .style('cursor', 'pointer')
     .call(d3.drag()
       .on('start', (event, d) => {
-        // 只记录位置，不重启仿真（区分点击和拖拽）
+        // Only record position, don't restart simulation (distinguish click from drag)
         d.fx = d.x
         d.fy = d.y
         d._dragStartX = event.x
@@ -669,13 +669,13 @@ const renderGraph = () => {
         d._isDragging = false
       })
       .on('drag', (event, d) => {
-        // 检测是否真正开始拖拽（移动超过阈值）
+        // Detect if real drag started (movement exceeds threshold)
         const dx = event.x - d._dragStartX
         const dy = event.y - d._dragStartY
         const distance = Math.sqrt(dx * dx + dy * dy)
         
         if (!d._isDragging && distance > 3) {
-          // 首次检测到真正拖拽，才重启仿真
+          // Only restart simulation on first real drag detected
           d._isDragging = true
           simulation.alphaTarget(0.3).restart()
         }
@@ -686,7 +686,7 @@ const renderGraph = () => {
         }
       })
       .on('end', (event, d) => {
-        // 只有真正拖拽过才让仿真逐渐停止
+        // Only let simulation wind down if actually dragged
         if (d._isDragging) {
           simulation.alphaTarget(0)
         }
@@ -697,12 +697,12 @@ const renderGraph = () => {
     )
     .on('click', (event, d) => {
       event.stopPropagation()
-      // 重置所有节点样式
+      // Reset all node styles
       node.attr('stroke', '#fff').attr('stroke-width', 2.5)
       linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
       // Highlight selected node
       d3.select(event.target).attr('stroke', '#E91E63').attr('stroke-width', 4)
-      // 高亮与此节点相连的边
+      // Highlight edges connected to this node
       link.filter(l => l.source.id === d.id || l.target.id === d.id)
         .attr('stroke', '#E91E63')
         .attr('stroke-width', 2.5)
@@ -739,19 +739,19 @@ const renderGraph = () => {
     .style('font-family', 'system-ui, sans-serif')
 
   simulation.on('tick', () => {
-    // 更新曲线路径
+    // Update curve paths
     link.attr('d', d => getLinkPath(d))
     
-    // 更新边标签位置（无旋转，水平显示更清晰）
+    // Update edge label positions (no rotation, horizontal for clarity)
     linkLabels.each(function(d) {
       const mid = getLinkMidpoint(d)
       d3.select(this)
         .attr('x', mid.x)
         .attr('y', mid.y)
-        .attr('transform', '') // 移除旋转，保持水平
+        .attr('transform', '') // Remove rotation, keep horizontal
     })
     
-    // 更新边标签背景
+    // Update edge label backgrounds
     linkLabelBg.each(function(d, i) {
       const mid = getLinkMidpoint(d)
       const textEl = linkLabels.nodes()[i]
@@ -761,7 +761,7 @@ const renderGraph = () => {
         .attr('y', mid.y - bbox.height / 2 - 2)
         .attr('width', bbox.width + 8)
         .attr('height', bbox.height + 4)
-        .attr('transform', '') // 移除旋转
+        .attr('transform', '') // Remove rotation
     })
 
     node
@@ -773,7 +773,7 @@ const renderGraph = () => {
       .attr('y', d => d.y)
   })
   
-  // 点击空白处关闭详情面板
+  // Click blank area to close detail panel
   svg.on('click', () => {
     selectedItem.value = null
     node.attr('stroke', '#fff').attr('stroke-width', 2.5)
@@ -787,7 +787,7 @@ watch(() => props.graphData, () => {
   nextTick(renderGraph)
 }, { deep: true })
 
-// 监听边标签显示开关
+// Watch edge label display toggle
 watch(showEdgeLabels, (newVal) => {
   if (linkLabelsRef) {
     linkLabelsRef.style('display', newVal ? 'block' : 'none')
@@ -1250,7 +1250,7 @@ input:checked + .slider:before {
   50% { opacity: 1; transform: scale(1.15); filter: drop-shadow(0 0 8px rgba(76, 175, 80, 0.6)); }
 }
 
-/* 模拟结束后的提示样式 */
+/* Post-simulation hint styles */
 .graph-building-hint.finished-hint {
   background: rgba(0, 0, 0, 0.65);
   border: 1px solid rgba(255, 255, 255, 0.1);
