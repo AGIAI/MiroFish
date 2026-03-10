@@ -473,7 +473,7 @@ class RedditSimulationRunner:
         round_num: int
     ) -> List:
         """
-        根据时间和配置决定本轮激活哪些Agent
+        Determine which Agents to activate this round based on time and configuration.
         """
         time_config = self.config.get("time_config", {})
         agent_configs = self.config.get("agent_configs", [])
@@ -521,16 +521,16 @@ class RedditSimulationRunner:
         return active_agents
     
     async def run(self, max_rounds: int = None):
-        """运行Reddit模拟
-        
+        """Run Reddit simulation.
+
         Args:
-            max_rounds: 最大模拟轮数（可选，用于截断过长的模拟）
+            max_rounds: Maximum simulation rounds (optional, used to truncate long simulations)
         """
         print("=" * 60)
-        print("OASIS Reddit模拟")
-        print(f"配置文件: {self.config_path}")
-        print(f"模拟ID: {self.config.get('simulation_id', 'unknown')}")
-        print(f"等待命令模式: {'启用' if self.wait_for_commands else '禁用'}")
+        print("OASIS Reddit Simulation")
+        print(f"Config file: {self.config_path}")
+        print(f"Simulation ID: {self.config.get('simulation_id', 'unknown')}")
+        print(f"Command-waiting mode: {'enabled' if self.wait_for_commands else 'disabled'}")
         print("=" * 60)
         
         time_config = self.config.get("time_config", {})
@@ -538,28 +538,28 @@ class RedditSimulationRunner:
         minutes_per_round = time_config.get("minutes_per_round", 30)
         total_rounds = (total_hours * 60) // minutes_per_round
         
-        # 如果指定了最大轮数，则截断
+        # Truncate if max rounds specified
         if max_rounds is not None and max_rounds > 0:
             original_rounds = total_rounds
             total_rounds = min(total_rounds, max_rounds)
             if total_rounds < original_rounds:
-                print(f"\n轮数已截断: {original_rounds} -> {total_rounds} (max_rounds={max_rounds})")
-        
-        print(f"\n模拟参数:")
-        print(f"  - 总模拟时长: {total_hours}小时")
-        print(f"  - 每轮时间: {minutes_per_round}分钟")
-        print(f"  - 总轮数: {total_rounds}")
+                print(f"\nRounds truncated: {original_rounds} -> {total_rounds} (max_rounds={max_rounds})")
+
+        print(f"\nSimulation parameters:")
+        print(f"  - Total simulation duration: {total_hours} hours")
+        print(f"  - Time per round: {minutes_per_round} minutes")
+        print(f"  - Total rounds: {total_rounds}")
         if max_rounds:
-            print(f"  - 最大轮数限制: {max_rounds}")
-        print(f"  - Agent数量: {len(self.config.get('agent_configs', []))}")
+            print(f"  - Max rounds limit: {max_rounds}")
+        print(f"  - Agent count: {len(self.config.get('agent_configs', []))}")
         
-        print("\n初始化LLM模型...")
+        print("\nInitializing LLM model...")
         model = self._create_model()
         
-        print("加载Agent Profile...")
+        print("Loading Agent Profile...")
         profile_path = self._get_profile_path()
         if not os.path.exists(profile_path):
-            print(f"错误: Profile文件不存在: {profile_path}")
+            print(f"Error: Profile file does not exist: {profile_path}")
             return
         
         self.agent_graph = await generate_reddit_agent_graph(
@@ -571,14 +571,14 @@ class RedditSimulationRunner:
         db_path = self._get_db_path()
         if os.path.exists(db_path):
             os.remove(db_path)
-            print(f"已删除旧数据库: {db_path}")
+            print(f"Deleted old database: {db_path}")
         
-        print("创建OASIS环境...")
+        print("Creating OASIS environment...")
         self.env = oasis.make(
             agent_graph=self.agent_graph,
             platform=oasis.DefaultPlatformType.REDDIT,
             database_path=db_path,
-            semaphore=30,  # 限制最大并发 LLM 请求数，防止 API 过载
+            semaphore=30,  # Limit max concurrent LLM requests to prevent API overload
         )
         
         await self.env.reset()
