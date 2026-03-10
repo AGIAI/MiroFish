@@ -2143,12 +2143,12 @@ def interview_agent():
 
     Request (JSON):
         {
-            "simulation_id": "sim_xxxx",       // Required，模拟ID
-            "agent_id": 0,                     // Required，Agent ID
-            "prompt": "你对这件事有什么看法？",  // Required，采访问题
-            "platform": "twitter",             // Optional，指定平台（twitter/reddit）
+            "simulation_id": "sim_xxxx",       // Required, simulation ID
+            "agent_id": 0,                     // Required, Agent ID
+            "prompt": "What do you think about this?",  // Required, interview question
+            "platform": "twitter",             // Optional, specify platform (twitter/reddit)
                                                // When not specified: dual-platform mode interviews both platforms simultaneously
-            "timeout": 60                      // Optional，超时时间（秒），默认60
+            "timeout": 60                      // Optional, timeout in seconds, default 60
         }
 
     Response (without specifying platform, dual-platform mode):
@@ -2272,21 +2272,21 @@ def interview_agents_batch():
 
     Request (JSON):
         {
-            "simulation_id": "sim_xxxx",       // Required，模拟ID
-            "interviews": [                    // Required，采访列表
+            "simulation_id": "sim_xxxx",       // Required, simulation ID
+            "interviews": [                    // Required, interview list
                 {
                     "agent_id": 0,
                     "prompt": "What is your opinion on A?",
-                    "platform": "twitter"      // Optional，指定该Agent的采访平台
+                    "platform": "twitter"      // Optional, specify interview platform for this Agent
                 },
                 {
                     "agent_id": 1,
                     "prompt": "What is your opinion on B?"  // Uses default if platform not specified
                 }
             ],
-            "platform": "reddit",              // Optional，默认平台（被每项的platform覆盖）
+            "platform": "reddit",              // Optional, default platform (overridden by per-item platform)
                                                // When not specified: dual-platform mode interviews each Agent on both platforms
-            "timeout": 120                     // Optional，超时时间（秒），默认120
+            "timeout": 120                     // Optional, timeout in seconds, default 120
         }
 
     Response:
@@ -2410,11 +2410,11 @@ def interview_all_agents():
 
     Request (JSON):
         {
-            "simulation_id": "sim_xxxx",            // Required，模拟ID
-            "prompt": "你对这件事整体有什么看法？",  // Required，采访问题（所有Agent使用相同问题）
-            "platform": "reddit",                   // Optional，指定平台（twitter/reddit）
+            "simulation_id": "sim_xxxx",            // Required, simulation ID
+            "prompt": "What is your overall opinion on this?",  // Required, interview question (same question for all Agents)
+            "platform": "reddit",                   // Optional, specify platform (twitter/reddit)
                                                     // When not specified: dual-platform mode interviews each Agent on both platforms
-            "timeout": 180                          // Optional，超时时间（秒），默认180
+            "timeout": 180                          // Optional, timeout in seconds, default 180
         }
 
     Response:
@@ -2513,11 +2513,11 @@ def get_interview_history():
 
     Request (JSON):
         {
-            "simulation_id": "sim_xxxx",  // Required，模拟ID
-            "platform": "reddit",          // Optional，平台types（reddit/twitter）
+            "simulation_id": "sim_xxxx",  // Required, simulation ID
+            "platform": "reddit",          // Optional, platform type (reddit/twitter)
                                            // If not specified, returns all history from both platforms
-            "agent_id": 0,                 // Optional，只获取该Agent的采访历史
-            "limit": 100                   // Optional，Return count，默认100
+            "agent_id": 0,                 // Optional, only get interview history for this Agent
+            "limit": 100                   // Optional, return count, default 100
         }
 
     Response:
@@ -2585,7 +2585,7 @@ def get_env_status():
 
     Request (JSON):
         {
-            "simulation_id": "sim_xxxx"  // Required，模拟ID
+            "simulation_id": "sim_xxxx"  // Required, simulation ID
         }
 
     Response:
@@ -2653,8 +2653,8 @@ def close_simulation_env():
     
     Request (JSON):
         {
-            "simulation_id": "sim_xxxx",  // Required，模拟ID
-            "timeout": 30                  // Optional，超时时间（秒），默认30
+            "simulation_id": "sim_xxxx",  // Required, simulation ID
+            "timeout": 30                  // Optional, timeout in seconds, default 30
         }
     
     Response:
