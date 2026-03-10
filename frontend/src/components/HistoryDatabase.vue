@@ -897,7 +897,7 @@ onUnmounted(() => {
   color: #2563EB;
 }
 
-/* 卡片描述 */
+/* Card description */
 .card-desc {
   font-family: 'Inter', sans-serif;
   font-size: 0.75rem;
@@ -911,7 +911,7 @@ onUnmounted(() => {
   -webkit-box-orient: vertical;
 }
 
-/* 卡片底部 */
+/* Card footer */
 .card-footer {
   position: relative;
   display: flex;
@@ -925,14 +925,14 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-/* 日期时间组合 */
+/* Date-time group */
 .card-datetime {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-/* 底部轮数进度显示 */
+/* Bottom rounds progress display */
 .card-footer .card-progress {
   display: flex;
   align-items: center;
@@ -946,12 +946,12 @@ onUnmounted(() => {
   font-size: 0.5rem;
 }
 
-/* 进度状态颜色 - 底部 */
+/* Progress status colors - bottom */
 .card-footer .card-progress.completed { color: #10B981; }
 .card-footer .card-progress.in-progress { color: #F59E0B; }
 .card-footer .card-progress.not-started { color: #9CA3AF; }
 
-/* 底部装饰线 */
+/* Bottom decoration line */
 .card-bottom-line {
   position: absolute;
   bottom: 0;
@@ -967,7 +967,7 @@ onUnmounted(() => {
   width: 100%;
 }
 
-/* 空状态 */
+/* Empty state */
 .empty-state, .loading-state {
   display: flex;
   flex-direction: column;
@@ -995,7 +995,7 @@ onUnmounted(() => {
   to { transform: rotate(360deg); }
 }
 
-/* 响应式 */
+/* Responsive */
 @media (max-width: 1200px) {
   .project-card {
     width: 240px;
@@ -1011,7 +1011,7 @@ onUnmounted(() => {
   }
 }
 
-/* ===== 历史回放详情弹窗样式 ===== */
+/* ===== History Replay Detail Modal Styles ===== */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -1037,7 +1037,7 @@ onUnmounted(() => {
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
 }
 
-/* 动画过渡 */
+/* Animation transitions */
 .modal-enter-active,
 .modal-leave-active {
   transition: opacity 0.3s ease;
@@ -1066,7 +1066,7 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-/* 弹窗头部 */
+/* Modal header */
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -1133,7 +1133,7 @@ onUnmounted(() => {
   color: #111827;
 }
 
-/* 弹窗内容 */
+/* Modal content */
 .modal-body {
   padding: 24px 32px;
 }
@@ -1175,7 +1175,7 @@ onUnmounted(() => {
   padding-right: 4px;
 }
 
-/* 自定义滚动条样式 */
+/* Custom scrollbar styles */
 .modal-files::-webkit-scrollbar {
   width: 4px;
 }
@@ -1229,7 +1229,7 @@ onUnmounted(() => {
   text-align: center;
 }
 
-/* 推演回放分割线 */
+/* Simulation replay divider */
 .modal-divider {
   display: flex;
   align-items: center;
@@ -1253,7 +1253,7 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-/* 导航按钮 */
+/* Navigation buttons */
 .modal-actions {
   display: flex;
   gap: 16px;
@@ -1320,7 +1320,7 @@ onUnmounted(() => {
   color: #111827;
 }
 
-/* 不可回放提示 */
+/* Non-replayable hint */
 .modal-playback-hint {
   display: flex;
   align-items: center;
