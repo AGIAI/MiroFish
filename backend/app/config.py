@@ -58,6 +58,13 @@ class Config:
         'TREND', 'REFRESH', 'DO_NOTHING', 'FOLLOW', 'MUTE'
     ]
 
+    # Market Data configuration (all optional - free tier APIs)
+    FRED_API_KEY = os.environ.get('FRED_API_KEY', '')  # https://fred.stlouisfed.org/docs/api/api_key.html
+    ETHERSCAN_API_KEY = os.environ.get('ETHERSCAN_API_KEY', '')  # https://etherscan.io/apis
+    CRYPTOPANIC_API_KEY = os.environ.get('CRYPTOPANIC_API_KEY', '')  # https://cryptopanic.com/developers/api/
+    COINGECKO_API_KEY = os.environ.get('COINGECKO_API_KEY', '')  # Optional, free tier works without key
+    MARKET_DATA_CACHE_TTL = int(os.environ.get('MARKET_DATA_CACHE_TTL', '300'))  # 5 minutes default
+
     # Report Agent configuration
     REPORT_AGENT_MAX_TOOL_CALLS = int(os.environ.get('REPORT_AGENT_MAX_TOOL_CALLS', '5'))
     REPORT_AGENT_MAX_REFLECTION_ROUNDS = int(os.environ.get('REPORT_AGENT_MAX_REFLECTION_ROUNDS', '2'))

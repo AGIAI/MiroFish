@@ -31,5 +31,15 @@ chardet>=5.0.0
 # 环境变量加载
 python-dotenv>=1.0.0
 
-# 数据验证
+# Data validation
 pydantic>=2.0.0
+
+# ============= Market Data (all free-tier) =============
+# Stock/ETF OHLCV and fundamentals
+yfinance>=0.2.31
+# Crypto exchanges — OHLCV, order books, tickers (100+ exchanges)
+ccxt>=4.0.0
+# RSS feed parsing for financial news
+feedparser>=6.0.0
+# HTTP requests (used by FRED, CoinGecko, Etherscan, Reddit adapters)
+requests>=2.31.0
