@@ -156,17 +156,10 @@ class SignalCalibrator:
         result.components = SignalComponents(**avg_components)
         result.agents_participated = sum(s.agents_participated for s in signals) // n
 
-        # Recalculate entry/exit based on ensembled direction
-        # (keep the first signal's levels if direction matches, otherwise adjust)
+        # Update thesis if direction changed
         if result.direction != signals[0].direction:
-            # Flip entry/exit
-            from .signal_extractor import SignalExtractor
-            extractor = SignalExtractor()
-            price = result.entry.price
-            atr = abs(result.entry.price - result.stop_loss.price) / 2
-            result.entry = extractor._compute_entry(price, direction, atr)
-            result.stop_loss = extractor._compute_stop_loss(price, direction, atr, result.regime)
-            result.take_profit = extractor._compute_take_profits(price, direction, atr, result.regime)
+            dir_word = "bullish" if direction == SignalDirection.LONG else "bearish" if direction == SignalDirection.SHORT else "neutral"
+            result.thesis = f"Ensembled {n} runs: {dir_word} with {agreement:.0%} agreement"
 
         logger.info(
             f"Ensembled {n} signals: direction={direction.value} "

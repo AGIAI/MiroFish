@@ -1,20 +1,22 @@
 """
 Signal Extraction Engine
-Converts simulation outcomes + market data into actionable trading signals
-with calibrated confidence scores.
+Converts data analysis into conviction signals.
 
-This is the core output product — the signal that gets pushed to OpenClaw/Meridian.
+MiroFish's core job:
+1. What was found? (the opportunity/pattern)
+2. What's the trade? (asset, direction, timeframe)
+3. What's the confidence? (conviction 0-1)
+
+Execution (entry/SL/TP/sizing) is Meridian's responsibility.
 """
 
 import math
-import statistics
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from ..models.signal import (
     TradingSignal, SignalDirection, MarketRegime,
-    SignalEntry, SignalStopLoss, SignalTakeProfit,
-    SignalComponents, EntryType, StopLossType,
+    SignalComponents, Finding,
 )
 from ..utils.logger import get_logger
 
@@ -23,10 +25,8 @@ logger = get_logger('mirofish.signal_extractor')
 
 class SignalExtractor:
     """
-    Converts raw simulation outcomes into calibrated TradingSignal objects.
-
-    Input: simulation results (agent positions, order book state, market data)
-    Output: TradingSignal with entry/exit levels, conviction, components
+    Converts raw data (simulation results, market data, enrichment context)
+    into conviction signals with supporting evidence.
     """
 
     def extract_from_simulation(
@@ -39,7 +39,7 @@ class SignalExtractor:
         simulation_id: Optional[str] = None,
     ) -> TradingSignal:
         """
-        Extract a trading signal from simulation results.
+        Extract a conviction signal from simulation results.
 
         Args:
             agent_positions: List of {agent_id, archetype, direction, size, conviction}
@@ -48,61 +48,40 @@ class SignalExtractor:
             regime: Regime detection result
             asset: Trading pair
             simulation_id: Source simulation ID
-
-        Returns:
-            A calibrated TradingSignal
         """
-        # 1. Compute signal components
         components = self._compute_components(agent_positions, order_book_state, market_data)
-
-        # 2. Determine direction from agent consensus
         direction = self._determine_direction(components)
-
-        # 3. Calculate conviction score
         conviction = self._calculate_conviction(components, regime)
-
-        # 4. Compute entry/exit levels
-        current_price = market_data.get("price", 0)
-        atr = market_data.get("atr", current_price * 0.02)  # Default 2% ATR
         regime_type = MarketRegime(regime.get("regime", "ranging"))
 
-        entry = self._compute_entry(current_price, direction, atr)
-        stop_loss = self._compute_stop_loss(current_price, direction, atr, regime_type)
-        take_profits = self._compute_take_profits(current_price, direction, atr, regime_type)
+        # Build findings from simulation evidence
+        findings = self._findings_from_simulation(agent_positions, order_book_state, market_data, components)
 
-        # 5. Position sizing suggestion
-        risk_pct = abs(current_price - stop_loss.price) / current_price * 100 if current_price > 0 else 2
-        position_size = self._suggest_position_size(conviction, risk_pct, components.crowding_risk)
+        # Build thesis
+        thesis = self._build_thesis(asset, direction, conviction, components, regime_type)
 
-        # 6. Time horizon based on regime
-        time_horizon = self._estimate_time_horizon(regime_type, market_data)
-
-        # 7. Determine dominant narrative and key risk
-        dominant_narrative = self._extract_narrative(agent_positions)
-        key_risk = self._identify_key_risk(components, regime)
+        # Identify risks
+        key_risks = self._identify_risks(components, regime)
 
         signal = TradingSignal(
             asset=asset,
             direction=direction,
             conviction=round(conviction, 3),
-            entry=entry,
-            stop_loss=stop_loss,
-            take_profit=take_profits,
-            position_size_pct=round(position_size, 1),
-            time_horizon_hours=time_horizon,
+            time_horizon_hours=self._estimate_time_horizon(regime_type),
+            thesis=thesis,
+            findings=findings,
             regime=regime_type,
             components=components,
+            key_risks=key_risks,
             simulation_id=simulation_id,
             simulation_rounds=market_data.get("simulation_rounds", 0),
             agents_participated=len(agent_positions),
-            dominant_narrative=dominant_narrative,
-            key_risk=key_risk,
+            dominant_narrative=self._extract_narrative(agent_positions),
         )
 
         logger.info(
             f"Signal extracted: {asset} {direction.value} "
-            f"conviction={conviction:.2f} entry={entry.price} "
-            f"SL={stop_loss.price} regime={regime_type.value}"
+            f"conviction={conviction:.2f} regime={regime_type.value}"
         )
 
         return signal
@@ -116,7 +95,6 @@ class SignalExtractor:
         """
         Extract a signal from market data alone (no simulation).
         Uses technical indicators as proxy for agent behavior.
-        Useful for fast signal generation without running full simulation.
         """
         if len(ohlcv) < 20:
             raise ValueError("Need at least 20 bars for signal extraction")
@@ -125,13 +103,10 @@ class SignalExtractor:
         volumes = [bar.get("volume", 0) for bar in ohlcv]
         current_price = closes[-1]
 
-        # Compute ATR
         atr = self._compute_atr(ohlcv, period=14)
-
-        # RSI as proxy for agent consensus
         rsi = self._compute_rsi(closes, period=14)
 
-        # Volume trend as proxy for flow imbalance
+        # Volume trend
         avg_vol = sum(volumes) / len(volumes) if volumes else 1
         recent_vol = sum(volumes[-5:]) / 5 if len(volumes) >= 5 else avg_vol
         vol_ratio = recent_vol / avg_vol if avg_vol > 0 else 1
@@ -161,25 +136,46 @@ class SignalExtractor:
         regime_type = MarketRegime(regime.get("regime", "ranging"))
         conviction = self._calculate_conviction(components, regime)
 
-        market_data = {"price": current_price, "atr": atr, "simulation_rounds": 0}
-        entry = self._compute_entry(current_price, direction, atr)
-        stop_loss = self._compute_stop_loss(current_price, direction, atr, regime_type)
-        take_profits = self._compute_take_profits(current_price, direction, atr, regime_type)
+        # Build findings from technical analysis
+        findings = []
+        findings.append(Finding(
+            source="technical",
+            detail=f"RSI at {rsi:.0f} — {'overbought territory' if rsi > 70 else 'oversold territory' if rsi < 30 else 'neutral zone'}",
+            direction="LONG" if rsi < 40 else "SHORT" if rsi > 60 else None,
+            strength=abs(rsi - 50) / 50,
+        ))
+        findings.append(Finding(
+            source="technical",
+            detail=f"5-bar momentum {returns_5d:+.1%}, 20-bar momentum {returns_20d:+.1%}",
+            direction="LONG" if returns_5d > 0.01 else "SHORT" if returns_5d < -0.01 else None,
+            strength=min(1, abs(returns_5d) * 10),
+        ))
+        if vol_ratio > 1.5:
+            findings.append(Finding(
+                source="technical",
+                detail=f"Volume surge — {vol_ratio:.1f}x average volume",
+                strength=min(1, (vol_ratio - 1) / 2),
+            ))
+        elif vol_ratio < 0.5:
+            findings.append(Finding(
+                source="technical",
+                detail=f"Low volume — {vol_ratio:.1f}x average, weak conviction",
+                strength=0.3,
+            ))
 
-        risk_pct = abs(current_price - stop_loss.price) / current_price * 100 if current_price > 0 else 2
-        position_size = self._suggest_position_size(conviction, risk_pct, components.crowding_risk)
+        thesis = self._build_thesis(asset, direction, conviction, components, regime_type)
+        key_risks = self._identify_risks(components, regime)
 
         return TradingSignal(
             asset=asset,
             direction=direction,
             conviction=round(conviction, 3),
-            entry=entry,
-            stop_loss=stop_loss,
-            take_profit=take_profits,
-            position_size_pct=round(position_size, 1),
-            time_horizon_hours=self._estimate_time_horizon(regime_type, market_data),
+            time_horizon_hours=self._estimate_time_horizon(regime_type),
+            thesis=thesis,
+            findings=findings,
             regime=regime_type,
             components=components,
+            key_risks=key_risks,
             agents_participated=0,
             dominant_narrative=f"Technical signal (RSI={rsi:.0f}, momentum={returns_5d:.1%})",
         )
@@ -188,13 +184,10 @@ class SignalExtractor:
         """
         Extract a signal from a fully enriched context (EnrichmentContext).
         This is the PREFERRED path — blends market data, news, on-chain,
-        external signals, and portfolio state into the signal.
+        and external signals into conviction + findings.
 
         Args:
             ctx: EnrichmentContext from SignalEnrichmentService.enrich()
-
-        Returns:
-            Fully integrated TradingSignal
         """
         if len(ctx.ohlcv) < 20:
             raise ValueError("Need at least 20 bars in enrichment context")
@@ -204,7 +197,6 @@ class SignalExtractor:
         current_price = ctx.current_price or closes[-1]
         atr = ctx.atr or self._compute_atr(ctx.ohlcv)
 
-        # RSI
         rsi = self._compute_rsi(closes, period=14)
 
         # Volume analysis
@@ -220,10 +212,9 @@ class SignalExtractor:
 
         # 1. Agent consensus: blend RSI with news sentiment + external signals
         tech_consensus = 0.5 + (rsi - 50) / 100
-        news_weight = min(0.3, ctx.news_volume / 50)  # More news = more weight, cap at 30%
+        news_weight = min(0.3, ctx.news_volume / 50)
         consensus = tech_consensus * (1 - news_weight) + (0.5 + ctx.news_sentiment_score * 0.5) * news_weight
 
-        # Blend with external signals if available
         if ctx.external_consensus is not None:
             consensus = consensus * 0.7 + ctx.external_consensus * 0.3
 
@@ -232,7 +223,7 @@ class SignalExtractor:
         if ctx.real_bid_depth > 0 and ctx.real_ask_depth > 0:
             total_depth = ctx.real_bid_depth + ctx.real_ask_depth
             real_flow = (ctx.real_bid_depth - ctx.real_ask_depth) / total_depth
-            flow = tech_flow * 0.4 + real_flow * 0.6  # Real depth weighted more
+            flow = tech_flow * 0.4 + real_flow * 0.6
         else:
             flow = tech_flow
 
@@ -268,24 +259,6 @@ class SignalExtractor:
         regime_type = MarketRegime(ctx.regime.get("regime", "ranging"))
         conviction = self._calculate_conviction(components, ctx.regime)
 
-        # --- Portfolio-aware adjustments ---
-
-        # Circuit breaker: reduce conviction when in drawdown
-        if ctx.portfolio_drawdown_pct < -5:
-            conviction *= 0.7
-        elif ctx.portfolio_drawdown_pct < -3:
-            conviction *= 0.85
-
-        # Reduce conviction after consecutive losses
-        if ctx.consecutive_losses >= 5:
-            conviction *= 0.5
-        elif ctx.consecutive_losses >= 3:
-            conviction *= 0.75
-
-        # Penalize if already positioned in same direction (don't double up blindly)
-        if ctx.has_existing_position and ctx.existing_position_direction == direction.value:
-            conviction *= 0.8
-
         # Boost if external signals agree
         if ctx.external_consensus is not None:
             external_agrees = (
@@ -295,73 +268,108 @@ class SignalExtractor:
             if external_agrees:
                 conviction = min(0.95, conviction * 1.15)
 
-        # On-chain adjustments
+        # On-chain confirmation
         if ctx.whale_net_flow > 0.3 and direction == SignalDirection.LONG:
-            conviction = min(0.95, conviction * 1.1)  # Whales agree with long
+            conviction = min(0.95, conviction * 1.1)
         elif ctx.whale_net_flow < -0.3 and direction == SignalDirection.SHORT:
-            conviction = min(0.95, conviction * 1.1)  # Whales agree with short
+            conviction = min(0.95, conviction * 1.1)
 
-        # Adjust slippage into entry price
-        entry = self._compute_entry(current_price, direction, atr)
-        if ctx.avg_slippage_pct > 0:
-            # Adjust entry to account for expected slippage
-            slippage_adj = current_price * ctx.avg_slippage_pct / 100
-            if direction == SignalDirection.LONG:
-                entry.price = round(entry.price - slippage_adj, 4)
-            else:
-                entry.price = round(entry.price + slippage_adj, 4)
+        # --- Build findings from ALL sources ---
+        findings = []
 
-        stop_loss = self._compute_stop_loss(current_price, direction, atr, regime_type)
-        take_profits = self._compute_take_profits(current_price, direction, atr, regime_type)
+        # Technical findings
+        findings.append(Finding(
+            source="technical",
+            detail=f"RSI at {rsi:.0f}, 5-bar momentum {returns_5d:+.1%}, 20-bar momentum {returns_20d:+.1%}",
+            direction="LONG" if rsi < 40 else "SHORT" if rsi > 60 else None,
+            strength=abs(rsi - 50) / 50,
+        ))
+        if vol_ratio > 1.3 or vol_ratio < 0.7:
+            findings.append(Finding(
+                source="technical",
+                detail=f"Volume at {vol_ratio:.1f}x average — {'surge confirms move' if vol_ratio > 1.3 else 'low volume, weak conviction'}",
+                strength=min(1, abs(vol_ratio - 1)),
+            ))
 
-        risk_pct = abs(current_price - stop_loss.price) / current_price * 100 if current_price > 0 else 2
-        position_size = self._suggest_position_size(conviction, risk_pct, components.crowding_risk)
+        # News findings
+        if ctx.news_volume > 0:
+            sentiment_label = "bullish" if ctx.news_sentiment_score > 0.1 else "bearish" if ctx.news_sentiment_score < -0.1 else "neutral"
+            findings.append(Finding(
+                source="news",
+                detail=f"{sentiment_label.capitalize()} sentiment ({ctx.news_sentiment_score:+.2f}) from {ctx.news_volume} articles",
+                direction="LONG" if ctx.news_sentiment_score > 0.1 else "SHORT" if ctx.news_sentiment_score < -0.1 else None,
+                strength=min(1, abs(ctx.news_sentiment_score)),
+            ))
 
-        # Reduce position size for correlated exposure
-        if ctx.correlated_exposure_pct > 30:
-            position_size *= 0.5
-        elif ctx.correlated_exposure_pct > 15:
-            position_size *= 0.75
+        # Order flow findings
+        if ctx.real_bid_depth > 0 and ctx.real_ask_depth > 0:
+            total_depth = ctx.real_bid_depth + ctx.real_ask_depth
+            bid_pct = ctx.real_bid_depth / total_depth * 100
+            findings.append(Finding(
+                source="order_flow",
+                detail=f"Order book {bid_pct:.0f}% bid-side depth, spread {ctx.real_spread_bps:.1f}bps",
+                direction="LONG" if bid_pct > 55 else "SHORT" if bid_pct < 45 else None,
+                strength=abs(bid_pct - 50) / 50,
+            ))
 
-        market_data = {"price": current_price, "atr": atr, "simulation_rounds": 0}
+        # On-chain findings
+        if ctx.whale_net_flow != 0:
+            flow_label = "inflow (accumulation)" if ctx.whale_net_flow > 0 else "outflow (distribution)"
+            findings.append(Finding(
+                source="on_chain",
+                detail=f"Whale net {flow_label}: {ctx.whale_net_flow:+.2f}",
+                direction="LONG" if ctx.whale_net_flow > 0.1 else "SHORT" if ctx.whale_net_flow < -0.1 else None,
+                strength=min(1, abs(ctx.whale_net_flow)),
+            ))
 
-        # Build narrative description
+        if ctx.gas_regime != "normal":
+            findings.append(Finding(
+                source="on_chain",
+                detail=f"Gas regime: {ctx.gas_regime}",
+                strength=0.3,
+            ))
+
+        # External signal findings
+        if ctx.external_consensus is not None:
+            ext_dir = "bullish" if ctx.external_consensus > 0.6 else "bearish" if ctx.external_consensus < 0.4 else "mixed"
+            findings.append(Finding(
+                source="external",
+                detail=f"External signals {ext_dir} ({ctx.external_consensus:.0%} long) from {len(ctx.external_signals)} sources",
+                direction="LONG" if ctx.external_consensus > 0.6 else "SHORT" if ctx.external_consensus < 0.4 else None,
+                strength=abs(ctx.external_consensus - 0.5) * 2,
+            ))
+
+        # Build thesis and risks
+        thesis = self._build_thesis(ctx.asset, direction, conviction, components, regime_type)
+        key_risks = self._identify_risks(components, ctx.regime)
+
+        # Build narrative parts for dominant_narrative
         narrative_parts = [f"RSI={rsi:.0f}"]
         if ctx.news_sentiment_score != 0:
-            narrative_parts.append(f"news_sentiment={ctx.news_sentiment_score:+.2f}")
+            narrative_parts.append(f"news={ctx.news_sentiment_score:+.2f}")
         if ctx.whale_net_flow != 0:
             narrative_parts.append(f"whale_flow={ctx.whale_net_flow:+.2f}")
         if ctx.external_consensus is not None:
-            narrative_parts.append(f"external_consensus={ctx.external_consensus:.0%}")
-
-        key_risk = self._identify_key_risk(components, ctx.regime)
-        if ctx.has_existing_position:
-            key_risk += f"; Existing {ctx.existing_position_direction} position ({ctx.existing_position_pnl_pct:+.1f}%)"
-        if ctx.consecutive_losses >= 3:
-            key_risk += f"; {ctx.consecutive_losses} consecutive losses"
+            narrative_parts.append(f"external={ctx.external_consensus:.0%}")
 
         signal = TradingSignal(
             asset=ctx.asset,
             direction=direction,
             conviction=round(max(0.05, min(0.95, conviction)), 3),
-            entry=entry,
-            stop_loss=stop_loss,
-            take_profit=take_profits,
-            position_size_pct=round(max(1.0, min(25.0, position_size)), 1),
-            time_horizon_hours=self._estimate_time_horizon(regime_type, market_data),
+            time_horizon_hours=self._estimate_time_horizon(regime_type),
+            thesis=thesis,
+            findings=findings,
             regime=regime_type,
             components=components,
+            key_risks=key_risks,
             agents_participated=0,
-            dominant_narrative=f"Enriched signal ({', '.join(narrative_parts)})",
-            key_risk=key_risk,
+            dominant_narrative=f"Enriched ({', '.join(narrative_parts)})",
         )
 
         logger.info(
             f"Enriched signal: {ctx.asset} {direction.value} "
             f"conviction={signal.conviction:.2f} "
-            f"sources={data_sources} "
-            f"news={ctx.news_sentiment_score:+.2f} "
-            f"whale={ctx.whale_net_flow:+.2f}"
+            f"sources={data_sources} findings={len(findings)}"
         )
 
         return signal
@@ -377,14 +385,11 @@ class SignalExtractor:
         market_data: Dict,
     ) -> SignalComponents:
         """Compute all signal components from simulation data."""
-
-        # Agent consensus: % of agents that are bullish
         total = len(agent_positions) or 1
         longs = sum(1 for a in agent_positions if a.get("direction") == "long")
         shorts = sum(1 for a in agent_positions if a.get("direction") == "short")
         consensus = longs / total
 
-        # Conviction strength: average conviction of majority side
         majority_side = "long" if longs >= shorts else "short"
         majority_convictions = [
             a.get("conviction", 0.5) for a in agent_positions
@@ -395,7 +400,7 @@ class SignalExtractor:
             if majority_convictions else 0.5
         )
 
-        # Narrative momentum: rate of narrative agents' activity
+        # Narrative momentum
         narrative_agents = [a for a in agent_positions if a.get("archetype") == "narrative"]
         if narrative_agents:
             narrative_convictions = [a.get("conviction", 0.5) for a in narrative_agents]
@@ -411,12 +416,10 @@ class SignalExtractor:
         total_depth = bid_depth + ask_depth
         flow_imbalance = (bid_depth - ask_depth) / total_depth if total_depth > 0 else 0
 
-        # Crowding risk: how one-sided the positioning is
-        crowding = abs(consensus - 0.5) * 2  # 0 = perfectly balanced, 1 = all same side
+        crowding = abs(consensus - 0.5) * 2
 
-        # Information edge: based on diversity of agent types
         archetypes = set(a.get("archetype", "") for a in agent_positions)
-        type_diversity = len(archetypes) / 8  # 8 archetypes total
+        type_diversity = len(archetypes) / 8
         info_edge = min(1.0, type_diversity * conviction_strength)
 
         return SignalComponents(
@@ -429,13 +432,12 @@ class SignalExtractor:
         )
 
     def _determine_direction(self, components: SignalComponents) -> SignalDirection:
-        """Determine signal direction from components."""
-        # Weighted vote
+        """Determine signal direction from components via weighted vote."""
         score = (
-            (components.agent_consensus - 0.5) * 2 * 0.35 +  # Agent consensus (35%)
-            components.flow_imbalance * 0.25 +                # Flow imbalance (25%)
-            components.narrative_momentum * 0.20 +            # Narrative (20%)
-            (components.agent_conviction_strength - 0.5) * 2 * 0.20  # Conviction (20%)
+            (components.agent_consensus - 0.5) * 2 * 0.35 +
+            components.flow_imbalance * 0.25 +
+            components.narrative_momentum * 0.20 +
+            (components.agent_conviction_strength - 0.5) * 2 * 0.20
         )
 
         if score > 0.1:
@@ -464,7 +466,6 @@ class SignalExtractor:
         regime_confidence = regime.get("confidence", 0.5)
         regime_type = regime.get("regime", "ranging")
 
-        # Higher conviction in trending regimes, lower in choppy
         if regime_type in ["trending_bull", "trending_bear"]:
             base_conviction *= (1 + regime_confidence * 0.15)
         elif regime_type in ["high_vol", "crisis"]:
@@ -473,128 +474,108 @@ class SignalExtractor:
         return max(0.0, min(1.0, base_conviction))
 
     # ========================================================================
-    # Entry/Exit computation
+    # Findings & thesis builders
     # ========================================================================
 
-    def _compute_entry(
-        self, price: float, direction: SignalDirection, atr: float
-    ) -> SignalEntry:
-        """Compute entry price — slight improvement from current price."""
-        if direction == SignalDirection.LONG:
-            # Limit buy slightly below market
-            entry_price = price - atr * 0.1
-        elif direction == SignalDirection.SHORT:
-            entry_price = price + atr * 0.1
-        else:
-            entry_price = price
+    def _findings_from_simulation(
+        self, agent_positions: List[Dict], order_book: Dict,
+        market_data: Dict, components: SignalComponents,
+    ) -> List[Finding]:
+        """Build findings list from simulation evidence."""
+        findings = []
 
-        valid_until = (datetime.utcnow() + timedelta(hours=2)).isoformat()
+        total = len(agent_positions) or 1
+        longs = sum(1 for a in agent_positions if a.get("direction") == "long")
+        shorts = total - longs
+        majority = "LONG" if longs > shorts else "SHORT"
 
-        return SignalEntry(
-            type=EntryType.LIMIT,
-            price=round(entry_price, 4),
-            valid_until=valid_until,
-        )
+        findings.append(Finding(
+            source="agent_simulation",
+            detail=f"{longs}/{total} agents bullish ({components.agent_consensus:.0%} consensus), avg conviction {components.agent_conviction_strength:.0%}",
+            direction=majority,
+            strength=components.agent_conviction_strength,
+        ))
 
-    def _compute_stop_loss(
-        self, price: float, direction: SignalDirection,
-        atr: float, regime: MarketRegime,
-    ) -> SignalStopLoss:
-        """ATR-based stop loss, adjusted for regime."""
-        multipliers = {
-            MarketRegime.TRENDING_BULL: 2.5,
-            MarketRegime.TRENDING_BEAR: 2.0,
-            MarketRegime.RANGING: 1.5,
-            MarketRegime.HIGH_VOL: 3.0,
-            MarketRegime.CRISIS: 4.0,
-            MarketRegime.RECOVERY: 2.0,
-        }
-        mult = multipliers.get(regime, 2.0)
-        stop_distance = atr * mult
-
-        if direction == SignalDirection.LONG:
-            stop_price = price - stop_distance
-        elif direction == SignalDirection.SHORT:
-            stop_price = price + stop_distance
-        else:
-            stop_price = price - stop_distance  # Default to long-side stop
-
-        risk_pct = abs(price - stop_price) / price * 100 if price > 0 else 2
-
-        return SignalStopLoss(
-            price=round(stop_price, 4),
-            type=StopLossType.ATR,
-            risk_pct=round(risk_pct, 2),
-        )
-
-    def _compute_take_profits(
-        self, price: float, direction: SignalDirection,
-        atr: float, regime: MarketRegime,
-    ) -> List[SignalTakeProfit]:
-        """Scaled take-profit levels (R:R based)."""
-        multipliers = {
-            MarketRegime.TRENDING_BULL: [2.0, 3.5],
-            MarketRegime.TRENDING_BEAR: [1.5, 2.5],
-            MarketRegime.RANGING: [1.0, 1.5],
-            MarketRegime.HIGH_VOL: [1.5, 2.5],
-            MarketRegime.CRISIS: [1.0, 2.0],
-            MarketRegime.RECOVERY: [1.5, 3.0],
-        }
-        mults = multipliers.get(regime, [1.5, 2.5])
-
-        tps = []
-        close_pcts = [60, 40]  # Close 60% at TP1, remaining 40% at TP2
-
-        for i, mult in enumerate(mults):
-            tp_distance = atr * mult
-            if direction == SignalDirection.LONG:
-                tp_price = price + tp_distance
-            elif direction == SignalDirection.SHORT:
-                tp_price = price - tp_distance
-            else:
-                tp_price = price + tp_distance
-
-            tps.append(SignalTakeProfit(
-                price=round(tp_price, 4),
-                close_pct=close_pcts[i] if i < len(close_pcts) else 100,
+        # Order flow finding
+        depth = order_book.get("depth", order_book)
+        bid_depth = depth.get("total_bid_depth", 0)
+        ask_depth = depth.get("total_ask_depth", 0)
+        if bid_depth + ask_depth > 0:
+            bid_pct = bid_depth / (bid_depth + ask_depth) * 100
+            findings.append(Finding(
+                source="order_flow",
+                detail=f"Simulated book {bid_pct:.0f}% bid-side, flow imbalance {components.flow_imbalance:+.2f}",
+                direction="LONG" if components.flow_imbalance > 0.1 else "SHORT" if components.flow_imbalance < -0.1 else None,
+                strength=abs(components.flow_imbalance),
             ))
 
-        return tps
+        # Narrative finding
+        if abs(components.narrative_momentum) > 0.1:
+            direction = "LONG" if components.narrative_momentum > 0 else "SHORT"
+            findings.append(Finding(
+                source="agent_simulation",
+                detail=f"Narrative agents {'bullish' if components.narrative_momentum > 0 else 'bearish'} (momentum={components.narrative_momentum:+.2f})",
+                direction=direction,
+                strength=abs(components.narrative_momentum),
+            ))
 
-    def _suggest_position_size(
-        self, conviction: float, risk_pct: float, crowding: float
-    ) -> float:
-        """
-        Half-Kelly position sizing.
-        f* = (p * b - q) / b, then halved for safety.
-        """
-        p = 0.5 + conviction * 0.15  # Estimated win probability
-        q = 1 - p
-        b = 2.0  # Assumed payoff ratio (2:1 R:R)
+        # Crowding warning
+        if components.crowding_risk > 0.6:
+            findings.append(Finding(
+                source="agent_simulation",
+                detail=f"High crowding risk ({components.crowding_risk:.0%}) — reversal risk elevated",
+                strength=components.crowding_risk,
+            ))
 
-        if b <= 0:
-            return 5.0
+        return findings
 
-        kelly = (p * b - q) / b
-        half_kelly = max(0, kelly / 2)
+    def _build_thesis(
+        self, asset: str, direction: SignalDirection, conviction: float,
+        components: SignalComponents, regime: MarketRegime,
+    ) -> str:
+        """Build a one-sentence thesis summarizing the opportunity."""
+        dir_word = "bullish" if direction == SignalDirection.LONG else "bearish" if direction == SignalDirection.SHORT else "neutral"
+        strength = "high" if conviction > 0.7 else "moderate" if conviction > 0.4 else "low"
 
-        # Scale to percentage, cap at 25%
-        size = half_kelly * 100
+        regime_desc = {
+            MarketRegime.TRENDING_BULL: "in a bullish trend",
+            MarketRegime.TRENDING_BEAR: "in a bearish trend",
+            MarketRegime.RANGING: "in a ranging market",
+            MarketRegime.HIGH_VOL: "during high volatility",
+            MarketRegime.CRISIS: "during crisis conditions",
+            MarketRegime.RECOVERY: "in recovery phase",
+        }.get(regime, "")
 
-        # Reduce for crowded trades
-        size *= (1 - crowding * 0.3)
+        # Pick the strongest driver
+        drivers = {
+            "agent consensus": components.agent_consensus,
+            "order flow": abs(components.flow_imbalance),
+            "narrative momentum": abs(components.narrative_momentum),
+            "information edge": components.information_edge_score,
+        }
+        top_driver = max(drivers, key=drivers.get)
 
-        # Never risk more than 2% of portfolio
-        if risk_pct > 0:
-            max_size_by_risk = (2.0 / risk_pct) * 100
-            size = min(size, max_size_by_risk)
+        return f"{asset} looks {dir_word} with {strength} conviction ({conviction:.0%}) {regime_desc}, primarily driven by {top_driver}"
 
-        return max(1.0, min(25.0, size))
+    def _identify_risks(self, components: SignalComponents, regime: Dict) -> List[str]:
+        """Identify key risks to this signal."""
+        risks = []
 
-    def _estimate_time_horizon(
-        self, regime: MarketRegime, market_data: Dict
-    ) -> int:
-        """Estimate holding period in hours based on regime."""
+        if components.crowding_risk > 0.7:
+            risks.append("Extreme crowding — reversal risk high")
+        if components.information_edge_score < 0.3:
+            risks.append("Low information edge — signal may be noise")
+        if regime.get("regime") in ["high_vol", "crisis"]:
+            risks.append(f"Adverse regime: {regime.get('regime')}")
+        if abs(components.flow_imbalance) < 0.1:
+            risks.append("Weak flow signal — low conviction from order book")
+        if regime.get("confidence", 0) < 0.4:
+            risks.append("Regime uncertainty — conditions may shift")
+
+        return risks
+
+    def _estimate_time_horizon(self, regime: MarketRegime) -> int:
+        """Estimate signal relevance window in hours based on regime."""
         horizons = {
             MarketRegime.TRENDING_BULL: 48,
             MarketRegime.TRENDING_BEAR: 24,
@@ -610,30 +591,12 @@ class SignalExtractor:
         narratives = [a.get("narrative", "") for a in agent_positions if a.get("narrative")]
         if not narratives:
             return None
-        # Most common narrative
         from collections import Counter
         counter = Counter(narratives)
         return counter.most_common(1)[0][0]
 
-    def _identify_key_risk(self, components: SignalComponents, regime: Dict) -> str:
-        """Identify the primary risk to this signal."""
-        risks = []
-
-        if components.crowding_risk > 0.7:
-            risks.append("Extreme crowding — reversal risk high")
-        if components.information_edge_score < 0.3:
-            risks.append("Low information edge — signal may be noise")
-        if regime.get("regime") in ["high_vol", "crisis"]:
-            risks.append(f"Adverse regime: {regime.get('regime')}")
-        if abs(components.flow_imbalance) < 0.1:
-            risks.append("Weak flow signal — low conviction from order book")
-        if regime.get("confidence", 0) < 0.4:
-            risks.append("Regime uncertainty — conditions may shift")
-
-        return "; ".join(risks) if risks else "No elevated risks identified"
-
     # ========================================================================
-    # Technical indicator helpers (no external deps)
+    # Technical indicator helpers
     # ========================================================================
 
     def _compute_atr(self, ohlcv: List[Dict], period: int = 14) -> float:

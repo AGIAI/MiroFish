@@ -1,18 +1,17 @@
 """
 Signal Delivery Service
-Pushes trading signals to external systems:
+Pushes conviction signals to external systems:
 - OpenClaw/Meridian webhook integration
-- Generic webhook delivery with retry
-- Signal formatting for different consumers (Freqtrade, CCXT, 3Commas, Cornix)
+- Generic webhook delivery with retry + HMAC signing
 """
 
 import json
 import time
 import threading
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, List, Optional, Any
 
-from ..models.signal import TradingSignal, SignalDirection
+from ..models.signal import TradingSignal
 from ..utils.logger import get_logger
 
 logger = get_logger('mirofish.signal_delivery')
@@ -25,7 +24,7 @@ class WebhookTarget:
         self,
         name: str,
         url: str,
-        format: str = "mirofish",  # mirofish, freqtrade, ccxt, threecomas, cornix
+        format: str = "mirofish",  # mirofish, openclaw
         headers: Optional[Dict[str, str]] = None,
         secret: Optional[str] = None,
         enabled: bool = True,
@@ -44,14 +43,15 @@ class WebhookTarget:
 
 class SignalDeliveryService:
     """
-    Manages signal delivery to external systems.
-    Supports multiple webhook targets with different formats.
+    Manages conviction signal delivery to external systems.
+    MiroFish tells Meridian what it found + confidence.
+    Meridian decides execution (entry/SL/TP/sizing).
     """
 
     def __init__(self):
         self._targets: Dict[str, WebhookTarget] = {}
         self._delivery_log: List[Dict[str, Any]] = []
-        self._signal_store: List[TradingSignal] = []  # In-memory signal archive
+        self._signal_store: List[TradingSignal] = []
 
     # ========================================================================
     # Target management
@@ -71,7 +71,7 @@ class SignalDeliveryService:
             headers=headers, secret=secret,
         )
         self._targets[name] = target
-        logger.info(f"Registered webhook target: {name} → {url} (format={format})")
+        logger.info(f"Registered webhook target: {name} -> {url} (format={format})")
         return target
 
     def unregister_target(self, name: str) -> bool:
@@ -107,21 +107,9 @@ class SignalDeliveryService:
         target_names: Optional[List[str]] = None,
         async_delivery: bool = True,
     ) -> Dict[str, Any]:
-        """
-        Deliver a signal to registered webhook targets.
-
-        Args:
-            signal: The trading signal to deliver
-            target_names: Specific targets to deliver to (None = all enabled)
-            async_delivery: Whether to deliver asynchronously
-
-        Returns:
-            Delivery status dict
-        """
-        # Store signal
+        """Deliver a conviction signal to registered webhook targets."""
         self._signal_store.append(signal)
 
-        # Determine targets
         if target_names:
             targets = [self._targets[n] for n in target_names if n in self._targets]
         else:
@@ -192,7 +180,6 @@ class SignalDeliveryService:
                 target.last_error = str(e)
                 logger.warning(f"Delivery to {target.name} attempt {attempt + 1} failed: {e}")
 
-            # Exponential backoff
             if attempt < max_retries - 1:
                 time.sleep(2 ** attempt)
 
@@ -214,59 +201,50 @@ class SignalDeliveryService:
         })
 
     # ========================================================================
-    # Signal formatting for different consumers
+    # Signal formatting
     # ========================================================================
 
     def _format_signal(self, signal: TradingSignal, format: str) -> Dict[str, Any]:
-        """Format signal for specific consumer system."""
+        """Format signal for delivery."""
         formatters = {
             "mirofish": self._format_mirofish,
-            "freqtrade": self._format_freqtrade,
-            "ccxt": self._format_ccxt,
-            "threecomas": self._format_threecomas,
-            "cornix": self._format_cornix,
             "openclaw": self._format_openclaw,
-            "meridian": self._format_openclaw,  # Same format for now
+            "meridian": self._format_openclaw,
         }
         formatter = formatters.get(format, self._format_mirofish)
         return formatter(signal)
 
     def _format_mirofish(self, signal: TradingSignal) -> Dict[str, Any]:
-        """Native MiroFish format — full signal data."""
+        """Native MiroFish format — full conviction signal."""
         return signal.model_dump()
 
     def _format_openclaw(self, signal: TradingSignal) -> Dict[str, Any]:
-        """OpenClaw/Meridian format — predictive signal with confidence."""
+        """OpenClaw/Meridian format — conviction signal for execution decisions."""
         return {
             "source": "mirofish",
             "version": signal.version,
             "signal_id": signal.signal_id,
             "timestamp": signal.timestamp_utc,
 
-            # Core prediction
+            # The trade
             "asset": signal.asset,
             "exchange": signal.exchange,
             "direction": signal.direction.value,
-            "conviction": signal.conviction,
             "time_horizon_hours": signal.time_horizon_hours,
 
-            # Trade levels
-            "entry_price": signal.entry.price,
-            "entry_type": signal.entry.type.value,
-            "stop_loss_price": signal.stop_loss.price,
-            "stop_loss_risk_pct": signal.stop_loss.risk_pct,
-            "take_profit_levels": [
-                {"price": tp.price, "close_pct": tp.close_pct}
-                for tp in signal.take_profit
-            ],
-            "position_size_pct": signal.position_size_pct,
+            # The confidence
+            "conviction": signal.conviction,
+
+            # What was found
+            "thesis": signal.thesis,
+            "findings": [f.model_dump() for f in signal.findings],
 
             # Market context
             "regime": signal.regime.value,
             "dominant_narrative": signal.dominant_narrative,
-            "key_risk": signal.key_risk,
+            "key_risks": signal.key_risks,
 
-            # Signal decomposition (for transparency)
+            # Signal decomposition (for Meridian to factor into execution)
             "components": {
                 "agent_consensus": signal.components.agent_consensus,
                 "conviction_strength": signal.components.agent_conviction_strength,
@@ -280,68 +258,6 @@ class SignalDeliveryService:
             "simulation_id": signal.simulation_id,
             "simulation_rounds": signal.simulation_rounds,
             "agents_participated": signal.agents_participated,
-        }
-
-    def _format_freqtrade(self, signal: TradingSignal) -> Dict[str, Any]:
-        """Freqtrade webhook format."""
-        side = "buy" if signal.direction == SignalDirection.LONG else "sell"
-        return {
-            "type": side,
-            "pair": signal.asset.replace("/", "_"),
-            "price": signal.entry.price,
-            "amount": signal.position_size_pct / 100,
-            "stoploss": signal.stop_loss.price,
-            "profit_targets": [tp.price for tp in signal.take_profit],
-            "tag": f"mirofish_{signal.regime.value}",
-            "signal_id": signal.signal_id,
-        }
-
-    def _format_ccxt(self, signal: TradingSignal) -> Dict[str, Any]:
-        """CCXT-compatible order parameters."""
-        side = "buy" if signal.direction == SignalDirection.LONG else "sell"
-        return {
-            "symbol": signal.asset,
-            "type": signal.entry.type.value.lower(),
-            "side": side,
-            "price": signal.entry.price,
-            "amount": None,  # Caller must compute from position_size_pct
-            "params": {
-                "stopLoss": {"triggerPrice": signal.stop_loss.price},
-                "takeProfit": [
-                    {"triggerPrice": tp.price, "quantity_pct": tp.close_pct}
-                    for tp in signal.take_profit
-                ],
-                "signal_id": signal.signal_id,
-                "source": "mirofish",
-            },
-        }
-
-    def _format_threecomas(self, signal: TradingSignal) -> Dict[str, Any]:
-        """3Commas webhook format."""
-        action = "buy" if signal.direction == SignalDirection.LONG else "sell"
-        return {
-            "message_type": "bot",
-            "bot_id": "{{bot_id}}",
-            "email_token": "{{email_token}}",
-            "delay_seconds": 0,
-            "pair": signal.asset.replace("/", "_"),
-            "action": action,
-            "signal_id": signal.signal_id,
-            "close_at": signal.take_profit[0].price if signal.take_profit else None,
-        }
-
-    def _format_cornix(self, signal: TradingSignal) -> Dict[str, Any]:
-        """Cornix-compatible signal format."""
-        direction = "Long" if signal.direction == SignalDirection.LONG else "Short"
-        return {
-            "pair": signal.asset,
-            "direction": direction,
-            "exchange": signal.exchange or "Binance",
-            "leverage": 1,
-            "entry": [signal.entry.price],
-            "targets": [tp.price for tp in signal.take_profit],
-            "stop": signal.stop_loss.price,
-            "signal_id": signal.signal_id,
         }
 
     # ========================================================================

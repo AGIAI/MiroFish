@@ -15,10 +15,61 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 
-from ..models.signal import PortfolioState, Position, SignalDirection
 from ..utils.logger import get_logger
 
 logger = get_logger('mirofish.external_ingestion')
+
+
+@dataclass
+class ExternalPosition:
+    """A position reported by OpenClaw/Meridian."""
+    asset: str
+    direction: str  # LONG, SHORT
+    entry_price: float
+    current_price: float = 0.0
+    size_pct: float = 0.0
+    unrealized_pnl_pct: float = 0.0
+    signal_id: str = ""
+    entry_time: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "asset": self.asset,
+            "direction": self.direction,
+            "entry_price": self.entry_price,
+            "current_price": self.current_price,
+            "size_pct": self.size_pct,
+            "unrealized_pnl_pct": self.unrealized_pnl_pct,
+            "signal_id": self.signal_id,
+            "entry_time": self.entry_time,
+        }
+
+
+@dataclass
+class ExternalPortfolioState:
+    """Portfolio state reported by OpenClaw/Meridian."""
+    total_equity: float = 100000.0
+    cash_pct: float = 100.0
+    positions: List = field(default_factory=list)
+    daily_pnl_pct: float = 0.0
+    weekly_pnl_pct: float = 0.0
+    total_pnl_pct: float = 0.0
+    max_drawdown_pct: float = 0.0
+    consecutive_losses: int = 0
+    active_signals: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "total_equity": self.total_equity,
+            "cash_pct": self.cash_pct,
+            "positions": [p.to_dict() for p in self.positions],
+            "daily_pnl_pct": self.daily_pnl_pct,
+            "weekly_pnl_pct": self.weekly_pnl_pct,
+            "total_pnl_pct": self.total_pnl_pct,
+            "max_drawdown_pct": self.max_drawdown_pct,
+            "consecutive_losses": self.consecutive_losses,
+            "active_signals": self.active_signals,
+        }
 
 
 @dataclass
@@ -178,7 +229,7 @@ class ExternalIngestionService:
         self._closed_trades: List[ClosedTrade] = []
 
         # Portfolio state (latest from OpenClaw)
-        self._portfolio_state: Optional[PortfolioState] = None
+        self._portfolio_state: Optional[ExternalPortfolioState] = None
 
         # External signals for blending
         self._external_signals: List[ExternalSignal] = []
@@ -318,9 +369,9 @@ class ExternalIngestionService:
         """
         positions = []
         for pos_data in data.get("positions", []):
-            positions.append(Position(
+            positions.append(ExternalPosition(
                 asset=pos_data["asset"],
-                direction=SignalDirection(pos_data["direction"]),
+                direction=pos_data["direction"],
                 entry_price=pos_data["entry_price"],
                 current_price=pos_data.get("current_price", 0),
                 size_pct=pos_data.get("size_pct", 0),
@@ -329,7 +380,7 @@ class ExternalIngestionService:
                 entry_time=pos_data.get("entry_time", ""),
             ))
 
-        state = PortfolioState(
+        state = ExternalPortfolioState(
             total_equity=data.get("total_equity", 100000),
             cash_pct=data.get("cash_pct", 100),
             positions=positions,
@@ -444,12 +495,12 @@ class ExternalIngestionService:
     # Read methods (used by signal enrichment layer)
     # ========================================================================
 
-    def get_portfolio_state(self) -> Optional[PortfolioState]:
+    def get_portfolio_state(self) -> Optional[ExternalPortfolioState]:
         """Get the latest portfolio state from OpenClaw."""
         with self._lock:
             return self._portfolio_state
 
-    def get_positions_for_asset(self, asset: str) -> List[Position]:
+    def get_positions_for_asset(self, asset: str) -> List[ExternalPosition]:
         """Get current positions for a specific asset."""
         with self._lock:
             if not self._portfolio_state:
@@ -530,7 +581,7 @@ class ExternalIngestionService:
         """
         with self._lock:
             return {
-                "portfolio": self._portfolio_state.model_dump() if self._portfolio_state else None,
+                "portfolio": self._portfolio_state.to_dict() if self._portfolio_state else None,
                 "recent_fills": [f.to_dict() for f in self._fills[-20:]],
                 "recent_closed_trades": [t.to_dict() for t in self._closed_trades[-20:]],
                 "external_signals": [s.to_dict() for s in self._external_signals[-20:]],

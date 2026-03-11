@@ -2,16 +2,14 @@
 Signal Enrichment Layer
 The connective tissue between data collection and signal extraction.
 
-Blends ALL available data sources into a unified enrichment context:
+Blends all available data sources into a unified enrichment context:
 - Market data (OHLCV, order book depth)
 - News sentiment (CryptoPanic, RSS, Reddit)
 - On-chain data (whale flows, gas, mempool)
-- External signals (from OpenClaw/Meridian)
-- Portfolio state (existing positions, correlation risk)
-- Real order book snapshots (from execution venue)
+- External signals (from OpenClaw/Meridian for blending)
 
-The enrichment context feeds directly into SignalExtractor, replacing
-the disconnected market-data-only path with a fully integrated one.
+The enrichment context feeds directly into SignalExtractor so it can
+determine WHAT was found and HOW confident MiroFish is.
 """
 
 import math
@@ -57,22 +55,9 @@ class EnrichmentContext:
         self.real_spread_bps: float = 0
         self.real_mid_price: float = 0
 
-        # External signals (from OpenClaw)
+        # External signals (from OpenClaw for blending)
         self.external_signals: List[Dict] = []
         self.external_consensus: Optional[float] = None  # 0-1 if external signals exist
-
-        # Portfolio context
-        self.has_existing_position: bool = False
-        self.existing_position_direction: Optional[str] = None
-        self.existing_position_pnl_pct: float = 0.0
-        self.portfolio_daily_pnl_pct: float = 0.0
-        self.portfolio_drawdown_pct: float = 0.0
-        self.consecutive_losses: int = 0
-        self.correlated_exposure_pct: float = 0.0  # % of portfolio in correlated assets
-
-        # Execution quality (from feedback loop)
-        self.avg_slippage_pct: float = 0.0
-        self.recent_win_rate: float = 0.5
 
         # Timestamps
         self.enriched_at: str = ""
@@ -93,13 +78,7 @@ class EnrichmentContext:
             "real_ask_depth": self.real_ask_depth,
             "real_spread_bps": self.real_spread_bps,
             "external_consensus": self.external_consensus,
-            "has_existing_position": self.has_existing_position,
-            "existing_position_direction": self.existing_position_direction,
-            "portfolio_drawdown_pct": self.portfolio_drawdown_pct,
-            "consecutive_losses": self.consecutive_losses,
-            "correlated_exposure_pct": self.correlated_exposure_pct,
-            "avg_slippage_pct": self.avg_slippage_pct,
-            "recent_win_rate": self.recent_win_rate,
+            "external_signal_count": len(self.external_signals),
             "enriched_at": self.enriched_at,
         }
 
@@ -107,13 +86,10 @@ class EnrichmentContext:
 class SignalEnrichmentService:
     """
     Pulls data from all available sources and builds an EnrichmentContext
-    that the SignalExtractor uses for fully-integrated signal generation.
-
-    This replaces the disconnected "market data only" path.
+    that the SignalExtractor uses for conviction signal generation.
     """
 
     def __init__(self):
-        # Lazy-loaded services
         self._market_data = None
         self._news_feed = None
         self._onchain = None
@@ -153,27 +129,12 @@ class SignalEnrichmentService:
         include_news: bool = True,
         include_onchain: bool = True,
         include_external: bool = True,
-        include_portfolio: bool = True,
     ) -> EnrichmentContext:
         """
         Build a fully enriched context for signal generation.
 
-        This is the main entry point. Collects data from ALL sources,
-        handles failures gracefully (each source is optional).
-
-        Args:
-            asset: Trading pair (e.g. "BTC/USDT" or "AAPL")
-            asset_type: "crypto" or "equity"
-            exchange: Target exchange (optional)
-            timeframe: OHLCV timeframe
-            bars: Number of bars
-            include_news: Whether to fetch news sentiment
-            include_onchain: Whether to fetch on-chain data
-            include_external: Whether to include external signals
-            include_portfolio: Whether to include portfolio state
-
-        Returns:
-            EnrichmentContext with all available data blended
+        Collects data from ALL sources, handles failures gracefully
+        (each source is optional).
         """
         ctx = EnrichmentContext()
         ctx.asset = asset
@@ -196,16 +157,9 @@ class SignalEnrichmentService:
         if include_onchain and asset_type == "crypto":
             self._enrich_onchain(ctx, asset)
 
-        # 6. External signals & portfolio
+        # 6. External signals
         if include_external:
             self._enrich_external_signals(ctx, asset)
-
-        if include_portfolio:
-            self._enrich_portfolio(ctx, asset)
-
-        # 7. Execution quality feedback
-        if include_external:
-            self._enrich_execution_quality(ctx)
 
         ctx.enriched_at = datetime.utcnow().isoformat()
 
@@ -214,8 +168,7 @@ class SignalEnrichmentService:
             f"price={ctx.current_price} regime={ctx.regime.get('regime', '?')} "
             f"news_sentiment={ctx.news_sentiment_score:+.2f} "
             f"whale_flow={ctx.whale_net_flow:+.2f} "
-            f"external_signals={len(ctx.external_signals)} "
-            f"has_position={ctx.has_existing_position}"
+            f"external_signals={len(ctx.external_signals)}"
         )
 
         return ctx
@@ -301,7 +254,6 @@ class SignalEnrichmentService:
         # CryptoPanic (crypto only)
         if asset_type == "crypto" and svc.cryptopanic.available:
             try:
-                # Extract coin code from pair (e.g. "BTC/USDT" → "BTC")
                 coin_code = asset.split("/")[0] if "/" in asset else asset
                 news = svc.cryptopanic.get_news(currencies=coin_code, limit=20)
                 total_items += len(news)
@@ -329,15 +281,13 @@ class SignalEnrichmentService:
                     try:
                         posts = svc.reddit.get_hot_posts(sub, limit=10)
                         total_items += len(posts)
-                        # Score-weighted sentiment from upvote ratio
                         for post in posts:
                             title_lower = post.get("title", "").lower()
                             ticker = asset.split("/")[0].lower() if "/" in asset else asset.lower()
                             if ticker in title_lower:
                                 ratio = post.get("upvote_ratio", 0.5)
                                 score = post.get("score", 0)
-                                # High upvote ratio + high score = strong sentiment
-                                sentiment = (ratio - 0.5) * 2  # Map 0-1 to -1 to +1
+                                sentiment = (ratio - 0.5) * 2
                                 weight = min(1.0, math.log1p(score) / 10)
                                 sentiment_scores.append(sentiment * weight)
                         time.sleep(0.3)
@@ -346,7 +296,6 @@ class SignalEnrichmentService:
             except Exception as e:
                 logger.debug(f"Reddit sentiment failed: {e}")
 
-        # Aggregate
         if sentiment_scores:
             ctx.news_sentiment_score = round(
                 sum(sentiment_scores) / len(sentiment_scores), 3
@@ -358,17 +307,14 @@ class SignalEnrichmentService:
         """On-chain metrics for crypto assets."""
         svc = self._get_onchain()
 
-        # Bitcoin-specific
         if "BTC" in asset.upper():
             try:
                 mempool = svc.bitcoin.get_mempool_info()
                 unconfirmed = mempool.get("unconfirmed_txs", 0)
-                # Normalize: 50k+ txs = congested
                 ctx.mempool_pressure = min(1.0, unconfirmed / 50000)
             except Exception as e:
                 logger.debug(f"BTC mempool failed: {e}")
 
-        # Ethereum-specific
         if "ETH" in asset.upper() and svc.etherscan.available:
             try:
                 gas = svc.etherscan.get_gas_oracle()
@@ -384,8 +330,7 @@ class SignalEnrichmentService:
             except Exception as e:
                 logger.debug(f"ETH gas failed: {e}")
 
-        # Whale flow tracking would need known whale addresses
-        # For now, use bid/ask imbalance as proxy
+        # Use bid/ask imbalance as proxy for whale flow
         if ctx.real_bid_depth > 0 and ctx.real_ask_depth > 0:
             total = ctx.real_bid_depth + ctx.real_ask_depth
             ctx.whale_net_flow = round(
@@ -400,52 +345,10 @@ class SignalEnrichmentService:
             ctx.external_signals = [s.to_dict() for s in signals]
 
             if signals:
-                # Calculate consensus from external signals
                 long_count = sum(1 for s in signals if s.direction == "LONG")
                 ctx.external_consensus = long_count / len(signals)
         except Exception as e:
             logger.debug(f"External signals failed: {e}")
-
-    def _enrich_portfolio(self, ctx: EnrichmentContext, asset: str):
-        """Portfolio state for risk-aware signal generation."""
-        try:
-            external = self._get_external()
-            portfolio = external.get_portfolio_state()
-            if not portfolio:
-                return
-
-            ctx.portfolio_daily_pnl_pct = portfolio.daily_pnl_pct
-            ctx.portfolio_drawdown_pct = portfolio.max_drawdown_pct
-            ctx.consecutive_losses = portfolio.consecutive_losses
-
-            # Check for existing position in this asset
-            positions = external.get_positions_for_asset(asset)
-            if positions:
-                pos = positions[0]
-                ctx.has_existing_position = True
-                ctx.existing_position_direction = pos.direction.value
-                ctx.existing_position_pnl_pct = pos.unrealized_pnl_pct
-
-            # Calculate correlated exposure
-            # Simple: count total position size in same asset class
-            total_exposure = sum(p.size_pct for p in portfolio.positions)
-            ctx.correlated_exposure_pct = total_exposure
-
-        except Exception as e:
-            logger.debug(f"Portfolio enrichment failed: {e}")
-
-    def _enrich_execution_quality(self, ctx: EnrichmentContext):
-        """Execution quality metrics from historical fills."""
-        try:
-            external = self._get_external()
-            stats = external.get_execution_stats()
-
-            if "fills" in stats:
-                ctx.avg_slippage_pct = stats["fills"].get("avg_slippage_pct", 0)
-            if "trades" in stats:
-                ctx.recent_win_rate = stats["trades"].get("win_rate", 0.5)
-        except Exception as e:
-            logger.debug(f"Execution quality enrichment failed: {e}")
 
     # ========================================================================
     # Helpers

@@ -1,12 +1,12 @@
 """
 Signal API routes
 Provides REST endpoints for:
-- Signal generation (from market data or simulation)
+- Signal generation (conviction signals from market data or enrichment)
 - Signal retrieval (latest, active, history)
 - Webhook management (register/unregister targets for OpenClaw/Meridian)
 - Regime detection
 - Trader archetype info
-- Signal delivery status
+- External data ingestion (from OpenClaw/Meridian)
 """
 
 from flask import request, jsonify
@@ -23,6 +23,8 @@ _delivery_service = None
 _regime_detector = None
 _trader_gen = None
 _market_data_svc = None
+_enrichment_svc = None
+_external_svc = None
 
 
 def _get_signal_extractor():
@@ -73,10 +75,6 @@ def _get_market_data():
     return _market_data_svc
 
 
-_enrichment_svc = None
-_external_svc = None
-
-
 def _get_enrichment():
     global _enrichment_svc
     if _enrichment_svc is None:
@@ -98,7 +96,7 @@ def _get_external():
 @signals_bp.route('/generate', methods=['POST'])
 def generate_signal():
     """
-    Generate a trading signal from current market data.
+    Generate a conviction signal from current market data.
 
     Body:
     {
@@ -110,6 +108,18 @@ def generate_signal():
         "calibrate": true,        // apply calibration
         "deliver": true,          // push to registered webhooks
         "targets": ["openclaw"]   // optional specific targets
+    }
+
+    Returns:
+    {
+        "signal": {
+            "asset": "BTC/USDT",
+            "direction": "LONG",
+            "conviction": 0.73,
+            "thesis": "BTC/USDT looks bullish with moderate conviction...",
+            "findings": [...],
+            "key_risks": [...]
+        }
     }
     """
     try:
@@ -141,7 +151,7 @@ def generate_signal():
         # 2. Detect regime
         regime = detector.detect(ohlcv)
 
-        # 3. Extract signal from market data
+        # 3. Extract conviction signal
         signal = extractor.extract_from_market_data_only(ohlcv, regime, asset=asset)
         signal.exchange = exchange
 
@@ -156,7 +166,6 @@ def generate_signal():
             delivery = _get_delivery()
             delivery_result = delivery.deliver(signal, target_names=target_names)
         else:
-            # Still store the signal
             _get_delivery()._signal_store.append(signal)
 
         return jsonify({
@@ -174,7 +183,7 @@ def generate_signal():
 @signals_bp.route('/generate/batch', methods=['POST'])
 def generate_batch_signals():
     """
-    Generate signals for multiple assets at once.
+    Generate conviction signals for multiple assets at once.
 
     Body:
     {
@@ -244,6 +253,81 @@ def generate_batch_signals():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@signals_bp.route('/generate/enriched', methods=['POST'])
+def generate_enriched_signal():
+    """
+    Generate a conviction signal using the FULL enrichment pipeline.
+    Blends market data + news + on-chain + external signals.
+
+    This is the preferred endpoint for highest quality signals.
+
+    Body:
+    {
+        "asset": "BTC/USDT",
+        "asset_type": "crypto",
+        "exchange": "binance",
+        "timeframe": "1h",
+        "bars": 100,
+        "include_news": true,
+        "include_onchain": true,
+        "include_external": true,
+        "calibrate": true,
+        "deliver": true,
+        "targets": ["openclaw"]
+    }
+    """
+    try:
+        body = request.get_json() or {}
+
+        enrichment = _get_enrichment()
+        extractor = _get_signal_extractor()
+
+        # Build enrichment context (pulls from ALL data sources)
+        ctx = enrichment.enrich(
+            asset=body.get("asset", "BTC/USDT"),
+            asset_type=body.get("asset_type", "crypto"),
+            exchange=body.get("exchange"),
+            timeframe=body.get("timeframe", "1h"),
+            bars=int(body.get("bars", 100)),
+            include_news=body.get("include_news", True),
+            include_onchain=body.get("include_onchain", True),
+            include_external=body.get("include_external", True),
+        )
+
+        if not ctx.ohlcv or len(ctx.ohlcv) < 20:
+            return jsonify({"success": False, "error": "Insufficient market data"}), 400
+
+        # Extract conviction signal from enriched context
+        signal = extractor.extract_enriched(ctx)
+        signal.exchange = body.get("exchange")
+
+        # Calibrate
+        if body.get("calibrate", True):
+            calibrator = _get_calibrator()
+            signal = calibrator.calibrate(signal)
+
+        # Deliver
+        delivery_result = None
+        if body.get("deliver", False):
+            delivery = _get_delivery()
+            delivery_result = delivery.deliver(
+                signal, target_names=body.get("targets")
+            )
+        else:
+            _get_delivery()._signal_store.append(signal)
+
+        return jsonify({
+            "success": True,
+            "signal": signal.model_dump(),
+            "enrichment": ctx.to_dict(),
+            "delivery": delivery_result,
+        })
+
+    except Exception as e:
+        logger.error(f"Enriched signal generation failed: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 # ============== Signal Retrieval ==============
 
 @signals_bp.route('/latest', methods=['GET'])
@@ -278,10 +362,7 @@ def get_active_signals():
 @signals_bp.route('/history', methods=['GET'])
 @signals_bp.route('/history/<asset>', methods=['GET'])
 def get_signal_history(asset: str = None):
-    """
-    Get historical signals.
-    Query params: limit (default: 50)
-    """
+    """Get historical signals. Query params: limit (default: 50)"""
     try:
         delivery = _get_delivery()
         limit = int(request.args.get("limit", "50"))
@@ -350,7 +431,7 @@ def register_webhook():
     {
         "name": "openclaw",
         "url": "https://api.openclaw.io/signals/webhook",
-        "format": "openclaw",  // mirofish, openclaw, freqtrade, ccxt, threecomas, cornix
+        "format": "openclaw",  // mirofish or openclaw
         "headers": {"Authorization": "Bearer xxx"},  // optional
         "secret": "hmac_secret"  // optional, for signature verification
     }
@@ -401,29 +482,26 @@ def unregister_webhook(name: str):
 
 @signals_bp.route('/webhooks/test/<name>', methods=['POST'])
 def test_webhook(name: str):
-    """Send a test signal to a specific webhook target."""
+    """Send a test conviction signal to a specific webhook target."""
     try:
         delivery = _get_delivery()
 
-        # Generate a quick test signal
         from ..models.signal import (
             TradingSignal, SignalDirection, MarketRegime,
-            SignalEntry, SignalStopLoss, SignalTakeProfit,
-            SignalComponents, EntryType, StopLossType,
+            SignalComponents, Finding,
         )
 
         test_signal = TradingSignal(
             asset="TEST/USDT",
             direction=SignalDirection.LONG,
             conviction=0.75,
-            entry=SignalEntry(type=EntryType.LIMIT, price=100.0),
-            stop_loss=SignalStopLoss(price=95.0, type=StopLossType.ATR, risk_pct=5.0),
-            take_profit=[
-                SignalTakeProfit(price=110.0, close_pct=60),
-                SignalTakeProfit(price=115.0, close_pct=40),
-            ],
-            position_size_pct=10.0,
             time_horizon_hours=24,
+            thesis="Test signal — BTC looks bullish with strong momentum and whale accumulation",
+            findings=[
+                Finding(source="technical", detail="RSI at 62, 5-bar momentum +2.3%", direction="LONG", strength=0.7),
+                Finding(source="news", detail="Bullish sentiment (+0.45) from 12 articles", direction="LONG", strength=0.6),
+                Finding(source="on_chain", detail="Whale net inflow +0.35", direction="LONG", strength=0.5),
+            ],
             regime=MarketRegime.TRENDING_BULL,
             components=SignalComponents(
                 agent_consensus=0.72,
@@ -433,6 +511,7 @@ def test_webhook(name: str):
                 crowding_risk=0.25,
                 information_edge_score=0.6,
             ),
+            key_risks=["Test signal only"],
             dominant_narrative="Test signal from MiroFish",
         )
 
@@ -591,86 +670,7 @@ def extend_ontology():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-# ============== Enriched Signal Generation ==============
-
-@signals_bp.route('/generate/enriched', methods=['POST'])
-def generate_enriched_signal():
-    """
-    Generate a signal using the FULL enrichment pipeline.
-    Blends market data + news + on-chain + external signals + portfolio state.
-
-    This is the preferred endpoint — use /generate for quick technical-only signals.
-
-    Body:
-    {
-        "asset": "BTC/USDT",
-        "asset_type": "crypto",
-        "exchange": "binance",
-        "timeframe": "1h",
-        "bars": 100,
-        "include_news": true,
-        "include_onchain": true,
-        "include_external": true,
-        "include_portfolio": true,
-        "calibrate": true,
-        "deliver": true,
-        "targets": ["openclaw"]
-    }
-    """
-    try:
-        body = request.get_json() or {}
-
-        enrichment = _get_enrichment()
-        extractor = _get_signal_extractor()
-
-        # Build enrichment context (pulls from ALL data sources)
-        ctx = enrichment.enrich(
-            asset=body.get("asset", "BTC/USDT"),
-            asset_type=body.get("asset_type", "crypto"),
-            exchange=body.get("exchange"),
-            timeframe=body.get("timeframe", "1h"),
-            bars=int(body.get("bars", 100)),
-            include_news=body.get("include_news", True),
-            include_onchain=body.get("include_onchain", True),
-            include_external=body.get("include_external", True),
-            include_portfolio=body.get("include_portfolio", True),
-        )
-
-        if not ctx.ohlcv or len(ctx.ohlcv) < 20:
-            return jsonify({"success": False, "error": "Insufficient market data"}), 400
-
-        # Extract signal from enriched context
-        signal = extractor.extract_enriched(ctx)
-        signal.exchange = body.get("exchange")
-
-        # Calibrate
-        if body.get("calibrate", True):
-            calibrator = _get_calibrator()
-            signal = calibrator.calibrate(signal)
-
-        # Deliver
-        delivery_result = None
-        if body.get("deliver", False):
-            delivery = _get_delivery()
-            delivery_result = delivery.deliver(
-                signal, target_names=body.get("targets")
-            )
-        else:
-            _get_delivery()._signal_store.append(signal)
-
-        return jsonify({
-            "success": True,
-            "signal": signal.model_dump(),
-            "enrichment": ctx.to_dict(),
-            "delivery": delivery_result,
-        })
-
-    except Exception as e:
-        logger.error(f"Enriched signal generation failed: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-# ============== External Data Ingestion (OpenClaw → MiroFish) ==============
+# ============== External Data Ingestion (OpenClaw -> MiroFish) ==============
 
 @signals_bp.route('/ingest/fill', methods=['POST'])
 def ingest_fill():
@@ -732,13 +732,13 @@ def ingest_closed_trade():
         external = _get_external()
         trade = external.ingest_closed_trade(body)
 
-        # Auto-feed calibrator
+        # Auto-feed calibrator with outcome
         try:
             calibrator = _get_calibrator()
             calibrator.record_outcome(
                 signal_id=trade.signal_id,
                 predicted_direction=trade.direction,
-                predicted_conviction=0.5,  # Will be looked up from signal store in future
+                predicted_conviction=0.5,
                 actual_outcome_pct=trade.return_pct,
             )
         except Exception as e:
@@ -755,7 +755,6 @@ def ingest_closed_trade():
 def ingest_portfolio_state():
     """
     Receive portfolio state update from OpenClaw/Meridian.
-    Used for portfolio-aware signal generation.
     Body:
     {
         "total_equity": 105000,
@@ -789,9 +788,6 @@ def ingest_external_signal():
         "asset": "BTC/USDT",
         "direction": "LONG",
         "conviction": 0.68,
-        "entry_price": 67500,
-        "stop_loss": 66200,
-        "take_profit": 69000,
         "metadata": {"model": "xgboost_v3"}
     }
     """
@@ -813,7 +809,6 @@ def ingest_external_signal():
 def ingest_order_book():
     """
     Receive real order book snapshot from execution venue.
-    Used to calibrate signal extraction with real-world depth.
     Body:
     {
         "asset": "BTC/USDT",
