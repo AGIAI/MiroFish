@@ -73,6 +73,26 @@ def _get_market_data():
     return _market_data_svc
 
 
+_enrichment_svc = None
+_external_svc = None
+
+
+def _get_enrichment():
+    global _enrichment_svc
+    if _enrichment_svc is None:
+        from ..services.signal_enrichment import SignalEnrichmentService
+        _enrichment_svc = SignalEnrichmentService()
+    return _enrichment_svc
+
+
+def _get_external():
+    global _external_svc
+    if _external_svc is None:
+        from ..services.external_ingestion import ExternalIngestionService
+        _external_svc = ExternalIngestionService()
+    return _external_svc
+
+
 # ============== Signal Generation ==============
 
 @signals_bp.route('/generate', methods=['POST'])
@@ -567,5 +587,275 @@ def extend_ontology():
             extend_with_llm=True,
         )
         return jsonify({"success": True, "data": ontology})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ============== Enriched Signal Generation ==============
+
+@signals_bp.route('/generate/enriched', methods=['POST'])
+def generate_enriched_signal():
+    """
+    Generate a signal using the FULL enrichment pipeline.
+    Blends market data + news + on-chain + external signals + portfolio state.
+
+    This is the preferred endpoint — use /generate for quick technical-only signals.
+
+    Body:
+    {
+        "asset": "BTC/USDT",
+        "asset_type": "crypto",
+        "exchange": "binance",
+        "timeframe": "1h",
+        "bars": 100,
+        "include_news": true,
+        "include_onchain": true,
+        "include_external": true,
+        "include_portfolio": true,
+        "calibrate": true,
+        "deliver": true,
+        "targets": ["openclaw"]
+    }
+    """
+    try:
+        body = request.get_json() or {}
+
+        enrichment = _get_enrichment()
+        extractor = _get_signal_extractor()
+
+        # Build enrichment context (pulls from ALL data sources)
+        ctx = enrichment.enrich(
+            asset=body.get("asset", "BTC/USDT"),
+            asset_type=body.get("asset_type", "crypto"),
+            exchange=body.get("exchange"),
+            timeframe=body.get("timeframe", "1h"),
+            bars=int(body.get("bars", 100)),
+            include_news=body.get("include_news", True),
+            include_onchain=body.get("include_onchain", True),
+            include_external=body.get("include_external", True),
+            include_portfolio=body.get("include_portfolio", True),
+        )
+
+        if not ctx.ohlcv or len(ctx.ohlcv) < 20:
+            return jsonify({"success": False, "error": "Insufficient market data"}), 400
+
+        # Extract signal from enriched context
+        signal = extractor.extract_enriched(ctx)
+        signal.exchange = body.get("exchange")
+
+        # Calibrate
+        if body.get("calibrate", True):
+            calibrator = _get_calibrator()
+            signal = calibrator.calibrate(signal)
+
+        # Deliver
+        delivery_result = None
+        if body.get("deliver", False):
+            delivery = _get_delivery()
+            delivery_result = delivery.deliver(
+                signal, target_names=body.get("targets")
+            )
+        else:
+            _get_delivery()._signal_store.append(signal)
+
+        return jsonify({
+            "success": True,
+            "signal": signal.model_dump(),
+            "enrichment": ctx.to_dict(),
+            "delivery": delivery_result,
+        })
+
+    except Exception as e:
+        logger.error(f"Enriched signal generation failed: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ============== External Data Ingestion (OpenClaw → MiroFish) ==============
+
+@signals_bp.route('/ingest/fill', methods=['POST'])
+def ingest_fill():
+    """
+    Receive an execution fill from OpenClaw/Meridian.
+    Body:
+    {
+        "signal_id": "sig_xxx",
+        "asset": "BTC/USDT",
+        "direction": "LONG",
+        "requested_price": 67500,
+        "actual_price": 67520,
+        "slippage_pct": 0.03,
+        "quantity": 0.5,
+        "fees": 3.38,
+        "exchange": "binance",
+        "fill_time": "2026-03-11T10:30:00Z",
+        "latency_ms": 450
+    }
+    """
+    try:
+        body = request.get_json() or {}
+        if not body.get("signal_id") or not body.get("asset"):
+            return jsonify({"success": False, "error": "signal_id and asset required"}), 400
+
+        external = _get_external()
+        fill = external.ingest_fill(body)
+        return jsonify({"success": True, "fill": fill.to_dict()})
+
+    except Exception as e:
+        logger.error(f"Fill ingestion failed: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@signals_bp.route('/ingest/trade-closed', methods=['POST'])
+def ingest_closed_trade():
+    """
+    Receive a closed trade from OpenClaw/Meridian.
+    Automatically updates calibration with the outcome.
+    Body:
+    {
+        "signal_id": "sig_xxx",
+        "asset": "BTC/USDT",
+        "direction": "LONG",
+        "entry_price": 67500,
+        "exit_price": 68800,
+        "return_pct": 1.93,
+        "holding_hours": 18.5,
+        "fees_total": 6.75,
+        "exit_reason": "take_profit",
+        "closed_at": "2026-03-12T05:00:00Z"
+    }
+    """
+    try:
+        body = request.get_json() or {}
+        if not body.get("signal_id"):
+            return jsonify({"success": False, "error": "signal_id required"}), 400
+
+        external = _get_external()
+        trade = external.ingest_closed_trade(body)
+
+        # Auto-feed calibrator
+        try:
+            calibrator = _get_calibrator()
+            calibrator.record_outcome(
+                signal_id=trade.signal_id,
+                predicted_direction=trade.direction,
+                predicted_conviction=0.5,  # Will be looked up from signal store in future
+                actual_outcome_pct=trade.return_pct,
+            )
+        except Exception as e:
+            logger.warning(f"Auto-calibration from closed trade failed: {e}")
+
+        return jsonify({"success": True, "trade": trade.to_dict()})
+
+    except Exception as e:
+        logger.error(f"Closed trade ingestion failed: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@signals_bp.route('/ingest/portfolio', methods=['POST'])
+def ingest_portfolio_state():
+    """
+    Receive portfolio state update from OpenClaw/Meridian.
+    Used for portfolio-aware signal generation.
+    Body:
+    {
+        "total_equity": 105000,
+        "cash_pct": 65.0,
+        "positions": [...],
+        "daily_pnl_pct": 0.85,
+        "weekly_pnl_pct": 2.3,
+        "max_drawdown_pct": -3.2,
+        "consecutive_losses": 0
+    }
+    """
+    try:
+        body = request.get_json() or {}
+        external = _get_external()
+        external.update_portfolio_state(body)
+        return jsonify({"success": True, "message": "Portfolio state updated"})
+
+    except Exception as e:
+        logger.error(f"Portfolio state ingestion failed: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@signals_bp.route('/ingest/signal', methods=['POST'])
+def ingest_external_signal():
+    """
+    Receive an external signal from OpenClaw/Meridian for blending.
+    Body:
+    {
+        "source": "openclaw",
+        "signal_id": "oc_sig_xxx",
+        "asset": "BTC/USDT",
+        "direction": "LONG",
+        "conviction": 0.68,
+        "entry_price": 67500,
+        "stop_loss": 66200,
+        "take_profit": 69000,
+        "metadata": {"model": "xgboost_v3"}
+    }
+    """
+    try:
+        body = request.get_json() or {}
+        if not body.get("asset") or not body.get("direction"):
+            return jsonify({"success": False, "error": "asset and direction required"}), 400
+
+        external = _get_external()
+        signal = external.ingest_external_signal(body)
+        return jsonify({"success": True, "signal": signal.to_dict()})
+
+    except Exception as e:
+        logger.error(f"External signal ingestion failed: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@signals_bp.route('/ingest/orderbook', methods=['POST'])
+def ingest_order_book():
+    """
+    Receive real order book snapshot from execution venue.
+    Used to calibrate signal extraction with real-world depth.
+    Body:
+    {
+        "asset": "BTC/USDT",
+        "exchange": "binance",
+        "bids": [[67400, 2.5], [67390, 1.8], ...],
+        "asks": [[67420, 3.1], [67430, 2.2], ...],
+        "timestamp": "2026-03-11T10:30:00Z"
+    }
+    """
+    try:
+        body = request.get_json() or {}
+        if not body.get("asset"):
+            return jsonify({"success": False, "error": "asset required"}), 400
+
+        external = _get_external()
+        snapshot = external.ingest_order_book_snapshot(body)
+        return jsonify({"success": True, "snapshot": snapshot.to_dict()})
+
+    except Exception as e:
+        logger.error(f"Order book ingestion failed: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@signals_bp.route('/ingest/state', methods=['GET'])
+def get_external_state():
+    """Get the full external ingestion state (portfolio, fills, signals, order books)."""
+    try:
+        external = _get_external()
+        state = external.get_current_state()
+        return jsonify({"success": True, "data": state})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@signals_bp.route('/ingest/execution-stats', methods=['GET'])
+def get_execution_stats():
+    """Get execution quality statistics from historical fills."""
+    try:
+        external = _get_external()
+        stats = external.get_execution_stats()
+        return jsonify({"success": True, "data": stats})
+
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500

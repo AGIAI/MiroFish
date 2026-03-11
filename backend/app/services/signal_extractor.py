@@ -184,6 +184,188 @@ class SignalExtractor:
             dominant_narrative=f"Technical signal (RSI={rsi:.0f}, momentum={returns_5d:.1%})",
         )
 
+    def extract_enriched(self, ctx: Any) -> TradingSignal:
+        """
+        Extract a signal from a fully enriched context (EnrichmentContext).
+        This is the PREFERRED path — blends market data, news, on-chain,
+        external signals, and portfolio state into the signal.
+
+        Args:
+            ctx: EnrichmentContext from SignalEnrichmentService.enrich()
+
+        Returns:
+            Fully integrated TradingSignal
+        """
+        if len(ctx.ohlcv) < 20:
+            raise ValueError("Need at least 20 bars in enrichment context")
+
+        closes = [bar["close"] for bar in ctx.ohlcv]
+        volumes = [bar.get("volume", 0) for bar in ctx.ohlcv]
+        current_price = ctx.current_price or closes[-1]
+        atr = ctx.atr or self._compute_atr(ctx.ohlcv)
+
+        # RSI
+        rsi = self._compute_rsi(closes, period=14)
+
+        # Volume analysis
+        avg_vol = sum(volumes) / len(volumes) if volumes else 1
+        recent_vol = sum(volumes[-5:]) / 5 if len(volumes) >= 5 else avg_vol
+        vol_ratio = recent_vol / avg_vol if avg_vol > 0 else 1
+
+        # Momentum
+        returns_5d = (closes[-1] / closes[-5] - 1) if len(closes) >= 5 else 0
+        returns_20d = (closes[-1] / closes[-20] - 1) if len(closes) >= 20 else 0
+
+        # --- Build components with ALL data sources ---
+
+        # 1. Agent consensus: blend RSI with news sentiment + external signals
+        tech_consensus = 0.5 + (rsi - 50) / 100
+        news_weight = min(0.3, ctx.news_volume / 50)  # More news = more weight, cap at 30%
+        consensus = tech_consensus * (1 - news_weight) + (0.5 + ctx.news_sentiment_score * 0.5) * news_weight
+
+        # Blend with external signals if available
+        if ctx.external_consensus is not None:
+            consensus = consensus * 0.7 + ctx.external_consensus * 0.3
+
+        # 2. Flow imbalance: blend volume ratio with real order book depth
+        tech_flow = max(-1, min(1, vol_ratio * returns_5d * 10))
+        if ctx.real_bid_depth > 0 and ctx.real_ask_depth > 0:
+            total_depth = ctx.real_bid_depth + ctx.real_ask_depth
+            real_flow = (ctx.real_bid_depth - ctx.real_ask_depth) / total_depth
+            flow = tech_flow * 0.4 + real_flow * 0.6  # Real depth weighted more
+        else:
+            flow = tech_flow
+
+        # 3. Narrative momentum: blend price momentum with news sentiment
+        tech_narrative = max(-1, min(1, returns_20d * 5))
+        if ctx.news_sentiment_score != 0:
+            narrative = tech_narrative * 0.6 + ctx.news_sentiment_score * 0.4
+        else:
+            narrative = tech_narrative
+
+        # 4. Information edge: higher when more data sources are available
+        data_sources = 1  # Always have OHLCV
+        if ctx.news_volume > 0:
+            data_sources += 1
+        if ctx.real_bid_depth > 0:
+            data_sources += 1
+        if ctx.external_consensus is not None:
+            data_sources += 1
+        if ctx.whale_net_flow != 0:
+            data_sources += 1
+        info_edge = min(1.0, data_sources / 5 * 0.8 + abs(rsi - 50) / 50 * 0.2)
+
+        components = SignalComponents(
+            agent_consensus=round(max(0, min(1, consensus)), 3),
+            agent_conviction_strength=min(1, abs(rsi - 50) / 30),
+            narrative_momentum=round(max(-1, min(1, narrative)), 3),
+            flow_imbalance=round(max(-1, min(1, flow)), 3),
+            crowding_risk=round(max(0, min(1, abs(consensus - 0.5) * 2)), 3),
+            information_edge_score=round(info_edge, 3),
+        )
+
+        direction = self._determine_direction(components)
+        regime_type = MarketRegime(ctx.regime.get("regime", "ranging"))
+        conviction = self._calculate_conviction(components, ctx.regime)
+
+        # --- Portfolio-aware adjustments ---
+
+        # Circuit breaker: reduce conviction when in drawdown
+        if ctx.portfolio_drawdown_pct < -5:
+            conviction *= 0.7
+        elif ctx.portfolio_drawdown_pct < -3:
+            conviction *= 0.85
+
+        # Reduce conviction after consecutive losses
+        if ctx.consecutive_losses >= 5:
+            conviction *= 0.5
+        elif ctx.consecutive_losses >= 3:
+            conviction *= 0.75
+
+        # Penalize if already positioned in same direction (don't double up blindly)
+        if ctx.has_existing_position and ctx.existing_position_direction == direction.value:
+            conviction *= 0.8
+
+        # Boost if external signals agree
+        if ctx.external_consensus is not None:
+            external_agrees = (
+                (ctx.external_consensus > 0.6 and direction == SignalDirection.LONG) or
+                (ctx.external_consensus < 0.4 and direction == SignalDirection.SHORT)
+            )
+            if external_agrees:
+                conviction = min(0.95, conviction * 1.15)
+
+        # On-chain adjustments
+        if ctx.whale_net_flow > 0.3 and direction == SignalDirection.LONG:
+            conviction = min(0.95, conviction * 1.1)  # Whales agree with long
+        elif ctx.whale_net_flow < -0.3 and direction == SignalDirection.SHORT:
+            conviction = min(0.95, conviction * 1.1)  # Whales agree with short
+
+        # Adjust slippage into entry price
+        entry = self._compute_entry(current_price, direction, atr)
+        if ctx.avg_slippage_pct > 0:
+            # Adjust entry to account for expected slippage
+            slippage_adj = current_price * ctx.avg_slippage_pct / 100
+            if direction == SignalDirection.LONG:
+                entry.price = round(entry.price - slippage_adj, 4)
+            else:
+                entry.price = round(entry.price + slippage_adj, 4)
+
+        stop_loss = self._compute_stop_loss(current_price, direction, atr, regime_type)
+        take_profits = self._compute_take_profits(current_price, direction, atr, regime_type)
+
+        risk_pct = abs(current_price - stop_loss.price) / current_price * 100 if current_price > 0 else 2
+        position_size = self._suggest_position_size(conviction, risk_pct, components.crowding_risk)
+
+        # Reduce position size for correlated exposure
+        if ctx.correlated_exposure_pct > 30:
+            position_size *= 0.5
+        elif ctx.correlated_exposure_pct > 15:
+            position_size *= 0.75
+
+        market_data = {"price": current_price, "atr": atr, "simulation_rounds": 0}
+
+        # Build narrative description
+        narrative_parts = [f"RSI={rsi:.0f}"]
+        if ctx.news_sentiment_score != 0:
+            narrative_parts.append(f"news_sentiment={ctx.news_sentiment_score:+.2f}")
+        if ctx.whale_net_flow != 0:
+            narrative_parts.append(f"whale_flow={ctx.whale_net_flow:+.2f}")
+        if ctx.external_consensus is not None:
+            narrative_parts.append(f"external_consensus={ctx.external_consensus:.0%}")
+
+        key_risk = self._identify_key_risk(components, ctx.regime)
+        if ctx.has_existing_position:
+            key_risk += f"; Existing {ctx.existing_position_direction} position ({ctx.existing_position_pnl_pct:+.1f}%)"
+        if ctx.consecutive_losses >= 3:
+            key_risk += f"; {ctx.consecutive_losses} consecutive losses"
+
+        signal = TradingSignal(
+            asset=ctx.asset,
+            direction=direction,
+            conviction=round(max(0.05, min(0.95, conviction)), 3),
+            entry=entry,
+            stop_loss=stop_loss,
+            take_profit=take_profits,
+            position_size_pct=round(max(1.0, min(25.0, position_size)), 1),
+            time_horizon_hours=self._estimate_time_horizon(regime_type, market_data),
+            regime=regime_type,
+            components=components,
+            agents_participated=0,
+            dominant_narrative=f"Enriched signal ({', '.join(narrative_parts)})",
+            key_risk=key_risk,
+        )
+
+        logger.info(
+            f"Enriched signal: {ctx.asset} {direction.value} "
+            f"conviction={signal.conviction:.2f} "
+            f"sources={data_sources} "
+            f"news={ctx.news_sentiment_score:+.2f} "
+            f"whale={ctx.whale_net_flow:+.2f}"
+        )
+
+        return signal
+
     # ========================================================================
     # Component computation
     # ========================================================================
