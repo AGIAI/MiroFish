@@ -295,12 +295,14 @@ const startSimulation = () => {
   // Store pending upload data
   import('../store/pendingUpload.js').then(({ setPendingUpload }) => {
     setPendingUpload(files.value, formData.value.simulationRequirement)
-    
+
     // Navigate immediately to the Process page (using special identifier for new project)
     router.push({
       name: 'Process',
       params: { projectId: 'new' }
     })
+  }).catch((err) => {
+    console.error('Failed to load upload module:', err)
   })
 }
 </script>
