@@ -551,10 +551,23 @@ const formatTime = (timestamp) => {
   }
 }
 
+const sanitizeHtml = (text) => {
+  if (!text) return ''
+  // Strip script/iframe/object/embed tags and their content
+  let s = text.replace(/<(script|iframe|object|embed|form|input|textarea|button)[^>]*>[\s\S]*?<\/\1>/gi, '')
+  s = s.replace(/<(script|iframe|object|embed|form|input|textarea|button)[^>]*\/?>/gi, '')
+  // Strip event handler attributes (on*)
+  s = s.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+  // Strip javascript: URLs
+  s = s.replace(/href\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, '')
+  s = s.replace(/src\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, '')
+  return s
+}
+
 const renderMarkdown = (content) => {
   if (!content) return ''
-  
-  let processedContent = content.replace(/^##\s+.+\n+/, '')
+
+  let processedContent = sanitizeHtml(content).replace(/^##\s+.+\n+/, '')
   let html = processedContent.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>')
   html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
   html = html.replace(/^#### (.+)$/gm, '<h5 class="md-h5">$1</h5>')

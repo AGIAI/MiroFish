@@ -411,9 +411,13 @@ def download_report(report_id: str):
         if not os.path.exists(md_path):
             # If MD file does not exist, generate a temporary file
             import tempfile
+            import atexit
             with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
                 f.write(report.markdown_content)
                 temp_path = f.name
+
+            # Schedule cleanup after response is sent
+            atexit.register(lambda p=temp_path: os.unlink(p) if os.path.exists(p) else None)
 
             return send_file(
                 temp_path,

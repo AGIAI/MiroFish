@@ -962,7 +962,7 @@ def get_simulation_history():
             try:
                 created_date = sim_dict.get("created_at", "")[:10]
                 sim_dict["created_date"] = created_date
-            except:
+            except (TypeError, AttributeError):
                 sim_dict["created_date"] = ""
             
             enriched_simulations.append(sim_dict)
@@ -2019,25 +2019,25 @@ def get_simulation_posts(simulation_id: str):
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        
+
         try:
             cursor.execute("""
-                SELECT * FROM post 
-                ORDER BY created_at DESC 
+                SELECT * FROM post
+                ORDER BY created_at DESC
                 LIMIT ? OFFSET ?
             """, (limit, offset))
-            
+
             posts = [dict(row) for row in cursor.fetchall()]
-            
+
             cursor.execute("SELECT COUNT(*) FROM post")
             total = cursor.fetchone()[0]
-            
+
         except sqlite3.OperationalError:
             posts = []
             total = 0
-        
-        conn.close()
-        
+        finally:
+            conn.close()
+
         return jsonify({
             "success": True,
             "data": {
@@ -2109,11 +2109,11 @@ def get_simulation_comments(simulation_id: str):
                 """, (limit, offset))
             
             comments = [dict(row) for row in cursor.fetchall()]
-            
+
         except sqlite3.OperationalError:
             comments = []
-        
-        conn.close()
+        finally:
+            conn.close()
         
         return jsonify({
             "success": True,

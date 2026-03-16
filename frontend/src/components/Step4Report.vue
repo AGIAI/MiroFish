@@ -1866,11 +1866,24 @@ const truncateText = (text, maxLen) => {
   return text.substring(0, maxLen) + '...'
 }
 
+const sanitizeHtml = (text) => {
+  if (!text) return ''
+  // Strip script/iframe/object/embed tags and their content
+  let s = text.replace(/<(script|iframe|object|embed|form|input|textarea|button)[^>]*>[\s\S]*?<\/\1>/gi, '')
+  s = s.replace(/<(script|iframe|object|embed|form|input|textarea|button)[^>]*\/?>/gi, '')
+  // Strip event handler attributes (on*)
+  s = s.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+  // Strip javascript: URLs
+  s = s.replace(/href\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, '')
+  s = s.replace(/src\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, '')
+  return s
+}
+
 const renderMarkdown = (content) => {
   if (!content) return ''
-  
+
   // Remove leading H2 title (## xxx), as section title is shown in outer layer
-  let processedContent = content.replace(/^##\s+.+\n+/, '')
+  let processedContent = sanitizeHtml(content).replace(/^##\s+.+\n+/, '')
   
   // Process code blocks
   let html = processedContent.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>')

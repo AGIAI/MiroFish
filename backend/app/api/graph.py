@@ -348,6 +348,28 @@ def build_graph():
         graph_name = data.get('graph_name', project.name or 'MiroFish Graph')
         chunk_size = data.get('chunk_size', project.chunk_size or Config.DEFAULT_CHUNK_SIZE)
         chunk_overlap = data.get('chunk_overlap', project.chunk_overlap or Config.DEFAULT_CHUNK_OVERLAP)
+
+        # Validate chunk parameters
+        try:
+            chunk_size = int(chunk_size)
+            chunk_overlap = int(chunk_overlap)
+        except (TypeError, ValueError):
+            return jsonify({
+                "success": False,
+                "error": "chunk_size and chunk_overlap must be integers"
+            }), 400
+
+        if chunk_size < 50 or chunk_size > 10000:
+            return jsonify({
+                "success": False,
+                "error": "chunk_size must be between 50 and 10000"
+            }), 400
+
+        if chunk_overlap < 0 or chunk_overlap >= chunk_size:
+            return jsonify({
+                "success": False,
+                "error": "chunk_overlap must be >= 0 and less than chunk_size"
+            }), 400
         
         # Update project configuration
         project.chunk_size = chunk_size

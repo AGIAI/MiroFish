@@ -48,7 +48,10 @@ class Config:
     DEFAULT_CHUNK_OVERLAP = 50  # Default overlap size
 
     # OASIS simulation configuration
-    OASIS_DEFAULT_MAX_ROUNDS = int(os.environ.get('OASIS_DEFAULT_MAX_ROUNDS', '10'))
+    try:
+        OASIS_DEFAULT_MAX_ROUNDS = int(os.environ.get('OASIS_DEFAULT_MAX_ROUNDS', '10'))
+    except (TypeError, ValueError):
+        OASIS_DEFAULT_MAX_ROUNDS = 10
     OASIS_SIMULATION_DATA_DIR = os.path.join(os.path.dirname(__file__), '../uploads/simulations')
 
     # OASIS platform available actions configuration
@@ -62,9 +65,18 @@ class Config:
     ]
 
     # Report Agent configuration
-    REPORT_AGENT_MAX_TOOL_CALLS = int(os.environ.get('REPORT_AGENT_MAX_TOOL_CALLS', '5'))
-    REPORT_AGENT_MAX_REFLECTION_ROUNDS = int(os.environ.get('REPORT_AGENT_MAX_REFLECTION_ROUNDS', '2'))
-    REPORT_AGENT_TEMPERATURE = float(os.environ.get('REPORT_AGENT_TEMPERATURE', '0.5'))
+    try:
+        REPORT_AGENT_MAX_TOOL_CALLS = int(os.environ.get('REPORT_AGENT_MAX_TOOL_CALLS', '5'))
+    except (TypeError, ValueError):
+        REPORT_AGENT_MAX_TOOL_CALLS = 5
+    try:
+        REPORT_AGENT_MAX_REFLECTION_ROUNDS = int(os.environ.get('REPORT_AGENT_MAX_REFLECTION_ROUNDS', '2'))
+    except (TypeError, ValueError):
+        REPORT_AGENT_MAX_REFLECTION_ROUNDS = 2
+    try:
+        REPORT_AGENT_TEMPERATURE = float(os.environ.get('REPORT_AGENT_TEMPERATURE', '0.5'))
+    except (TypeError, ValueError):
+        REPORT_AGENT_TEMPERATURE = 0.5
 
     @classmethod
     def validate(cls):
