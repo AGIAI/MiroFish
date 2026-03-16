@@ -231,14 +231,19 @@ class SimulationRunner:
 
     @classmethod
     def get_run_state(cls, simulation_id: str) -> Optional[SimulationRunState]:
-        """Get run state"""
-        if simulation_id in cls._run_states:
-            return cls._run_states[simulation_id]
+        """Get run state (prefers in-memory cache, falls back to disk)"""
+        with cls._lock:
+            if simulation_id in cls._run_states:
+                return cls._run_states[simulation_id]
 
-        # Try to load from file
+        # Try to load from file (outside lock — file I/O can be slow)
         state = cls._load_run_state(simulation_id)
         if state:
-            cls._run_states[simulation_id] = state
+            with cls._lock:
+                # Double-check: another thread may have populated it
+                if simulation_id not in cls._run_states:
+                    cls._run_states[simulation_id] = state
+                return cls._run_states[simulation_id]
         return state
 
     @classmethod
