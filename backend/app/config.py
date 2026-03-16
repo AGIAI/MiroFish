@@ -21,11 +21,14 @@ class Config:
     """Flask configuration class"""
 
     # Flask configuration
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'mirofish-secret-key')
+    SECRET_KEY = os.environ.get('SECRET_KEY') or os.urandom(32).hex()
     DEBUG = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
 
-    # JSON configuration - disable ASCII escaping so Chinese characters display directly (instead of \uXXXX format)
+    # JSON configuration - disable ASCII escaping so non-ASCII characters display directly
     JSON_AS_ASCII = False
+
+    # CORS configuration
+    CORS_ORIGINS = os.environ.get('CORS_ORIGINS', 'http://localhost:3000')
 
     # LLM configuration (unified OpenAI format)
     LLM_API_KEY = os.environ.get('LLM_API_KEY')

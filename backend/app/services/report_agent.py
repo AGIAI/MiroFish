@@ -952,20 +952,38 @@ class ReportAgent:
             }
         }
     
+    # Maximum time (seconds) allowed for a single tool call before giving up
+    TOOL_CALL_TIMEOUT = int(os.environ.get('REPORT_TOOL_TIMEOUT', '120'))
+
     def _execute_tool(self, tool_name: str, parameters: Dict[str, Any], report_context: str = "") -> str:
         """
-        Execute tool call
-        
+        Execute tool call with timeout protection.
+
         Args:
             tool_name: Tool name
             parameters: Tool parameters
             report_context: Report context (for InsightForge)
-            
+
         Returns:
             Tool execution result (text format)
         """
+        import concurrent.futures
+
         logger.info(f"Executing tool: {tool_name}, parameters: {parameters}")
-        
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(self._execute_tool_inner, tool_name, parameters, report_context)
+                return future.result(timeout=self.TOOL_CALL_TIMEOUT)
+        except concurrent.futures.TimeoutError:
+            logger.error(f"Tool {tool_name} timed out after {self.TOOL_CALL_TIMEOUT}s")
+            return f"Tool execution timed out after {self.TOOL_CALL_TIMEOUT} seconds"
+        except Exception as e:
+            logger.error(f"Tool execution failed: {tool_name}, error: {str(e)}")
+            return f"Tool execution failed: {str(e)}"
+
+    def _execute_tool_inner(self, tool_name: str, parameters: Dict[str, Any], report_context: str = "") -> str:
+        """Inner tool execution logic."""
         try:
             if tool_name == "insight_forge":
                 query = parameters.get("query", "")
@@ -976,8 +994,10 @@ class ReportAgent:
                     simulation_requirement=self.simulation_requirement,
                     report_context=ctx
                 )
+                if result is None:
+                    return "No insight data returned from graph"
                 return result.to_text()
-            
+
             elif tool_name == "panorama_search":
                 # Broad search - get full overview
                 query = parameters.get("query", "")
@@ -989,8 +1009,10 @@ class ReportAgent:
                     query=query,
                     include_expired=include_expired
                 )
+                if result is None:
+                    return "No panorama data returned from graph"
                 return result.to_text()
-            
+
             elif tool_name == "quick_search":
                 # Simple search - quick retrieval
                 query = parameters.get("query", "")
@@ -1002,6 +1024,8 @@ class ReportAgent:
                     query=query,
                     limit=limit
                 )
+                if result is None:
+                    return "No search results returned from graph"
                 return result.to_text()
             
             elif tool_name == "interview_agents":
@@ -1017,6 +1041,8 @@ class ReportAgent:
                     simulation_requirement=self.simulation_requirement,
                     max_agents=max_agents
                 )
+                if result is None:
+                    return "No interview data returned"
                 return result.to_text()
             
             # ========== Backward-compatible legacy tools (internally redirected to new tools) ==========

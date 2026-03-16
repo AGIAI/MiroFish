@@ -136,6 +136,13 @@ class SimulationIPCClient:
         Raises:
             TimeoutError: Timed out waiting for response
         """
+        # Verify environment is alive before sending commands
+        if not self.check_env_alive():
+            raise RuntimeError(
+                f"Simulation environment is not running or has been shut down. "
+                f"Cannot execute {command_type.value} command."
+            )
+
         command_id = str(uuid.uuid4())
         command = IPCCommand(
             command_id=command_id,

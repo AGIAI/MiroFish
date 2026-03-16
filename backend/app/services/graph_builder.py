@@ -389,7 +389,10 @@ class GraphBuilderService:
                 )
 
             if pending_episodes:
-                time.sleep(3)  # Check every 3 seconds
+                # Exponential backoff: 3s, 6s, 9s... up to 15s
+                elapsed = time.time() - start_time
+                backoff = min(3 + int(elapsed / 30) * 3, 15)
+                time.sleep(backoff)
 
         if progress_callback:
             progress_callback(f"Processing complete: {completed_count}/{total_episodes}", 1.0)

@@ -6,8 +6,33 @@ Provides unified log management with output to both console and file
 import os
 import sys
 import logging
+import threading
+import uuid
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
+
+
+# Thread-local storage for correlation IDs
+_correlation = threading.local()
+
+
+def set_correlation_id(correlation_id: str = None) -> str:
+    """Set a correlation ID for the current thread/request. Returns the ID."""
+    cid = correlation_id or uuid.uuid4().hex[:12]
+    _correlation.id = cid
+    return cid
+
+
+def get_correlation_id() -> str:
+    """Get the correlation ID for the current thread, or '-' if not set."""
+    return getattr(_correlation, 'id', '-')
+
+
+class CorrelationFilter(logging.Filter):
+    """Injects correlation_id into every log record."""
+    def filter(self, record):
+        record.correlation_id = get_correlation_id()
+        return True
 
 
 def _ensure_utf8_stdout():
@@ -52,14 +77,17 @@ def setup_logger(name: str = 'mirofish', level: int = logging.DEBUG) -> logging.
     if logger.handlers:
         return logger
 
-    # Log format
+    # Add correlation ID filter
+    logger.addFilter(CorrelationFilter())
+
+    # Log format (includes correlation_id for traceability)
     detailed_formatter = logging.Formatter(
-        '[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s',
+        '[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] [%(correlation_id)s] %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
     simple_formatter = logging.Formatter(
-        '[%(asctime)s] %(levelname)s: %(message)s',
+        '[%(asctime)s] %(levelname)s [%(correlation_id)s]: %(message)s',
         datefmt='%H:%M:%S'
     )
 

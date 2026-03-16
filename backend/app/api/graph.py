@@ -10,6 +10,9 @@ from flask import request, jsonify
 
 from . import graph_bp
 from ..config import Config
+
+# Maximum allowed length for user-supplied text fields sent to LLM prompts
+MAX_REQUIREMENT_LENGTH = 10000
 from ..services.ontology_generator import OntologyGenerator
 from ..services.graph_builder import GraphBuilderService
 from ..services.text_processor import TextProcessor
@@ -162,6 +165,12 @@ def generate_ontology():
                 "success": False,
                 "error": "Please provide simulation_requirement"
             }), 400
+
+        if len(simulation_requirement) > MAX_REQUIREMENT_LENGTH:
+            return jsonify({
+                "success": False,
+                "error": f"simulation_requirement exceeds maximum length ({MAX_REQUIREMENT_LENGTH} chars)"
+            }), 400
         
         # Get uploaded files
         uploaded_files = request.files.getlist('files')
@@ -250,7 +259,7 @@ def generate_ontology():
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -520,7 +529,7 @@ def build_graph():
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -585,7 +594,7 @@ def get_graph_data(graph_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -613,5 +622,5 @@ def delete_graph(graph_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500

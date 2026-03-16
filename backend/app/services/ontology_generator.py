@@ -254,6 +254,31 @@ Based on the above content, design entity types and relationship types suitable 
 
         return message
 
+    @staticmethod
+    def _to_pascal_case(name: str) -> str:
+        """Convert a name to PascalCase (e.g. 'some_thing' -> 'SomeThing')."""
+        if not name:
+            return name
+        # Split on underscores, hyphens, spaces, or camelCase boundaries
+        import re
+        parts = re.split(r'[_\-\s]+', name)
+        if len(parts) == 1:
+            # Handle camelCase input: split on uppercase boundaries
+            parts = re.sub(r'([a-z])([A-Z])', r'\1_\2', parts[0]).split('_')
+        return ''.join(word.capitalize() for word in parts if word)
+
+    @staticmethod
+    def _to_upper_snake_case(name: str) -> str:
+        """Convert a name to UPPER_SNAKE_CASE (e.g. 'worksFor' -> 'WORKS_FOR')."""
+        if not name:
+            return name
+        import re
+        # Insert underscore before uppercase letters in camelCase
+        s = re.sub(r'([a-z])([A-Z])', r'\1_\2', name)
+        # Replace hyphens/spaces with underscore
+        s = re.sub(r'[\-\s]+', '_', s)
+        return s.upper()
+
     def _validate_and_process(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Validate and post-process results"""
 
@@ -265,8 +290,12 @@ Based on the above content, design entity types and relationship types suitable 
         if "analysis_summary" not in result:
             result["analysis_summary"] = ""
 
-        # Validate entity types
+        # Filter out malformed entity entries and normalize names to PascalCase
+        valid_entities = []
         for entity in result["entity_types"]:
+            if "name" not in entity:
+                continue
+            entity["name"] = self._to_pascal_case(entity["name"])
             if "attributes" not in entity:
                 entity["attributes"] = []
             if "examples" not in entity:
@@ -274,15 +303,32 @@ Based on the above content, design entity types and relationship types suitable 
             # Ensure description does not exceed 100 characters
             if len(entity.get("description", "")) > 100:
                 entity["description"] = entity["description"][:97] + "..."
+            valid_entities.append(entity)
+        result["entity_types"] = valid_entities
 
-        # Validate relationship types
+        # Build a set of valid entity type names for reference validation
+        entity_names = {e["name"] for e in result["entity_types"]}
+
+        # Filter out malformed edge entries and normalize names to UPPER_SNAKE_CASE
+        valid_edges = []
         for edge in result["edge_types"]:
+            if "name" not in edge:
+                continue
+            edge["name"] = self._to_upper_snake_case(edge["name"])
             if "source_targets" not in edge:
                 edge["source_targets"] = []
             if "attributes" not in edge:
                 edge["attributes"] = []
             if len(edge.get("description", "")) > 100:
                 edge["description"] = edge["description"][:97] + "..."
+            # Normalize source/target references to PascalCase
+            for st in edge.get("source_targets", []):
+                if "source" in st:
+                    st["source"] = self._to_pascal_case(st["source"])
+                if "target" in st:
+                    st["target"] = self._to_pascal_case(st["target"])
+            valid_edges.append(edge)
+        result["edge_types"] = valid_edges
 
         # Zep API limits: max 10 custom entity types, max 10 custom edge types
         MAX_ENTITY_TYPES = 10

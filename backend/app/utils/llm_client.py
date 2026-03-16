@@ -4,6 +4,7 @@ Unified OpenAI-format API calls
 """
 
 import json
+import logging
 import re
 from typing import Optional, Dict, Any, List
 from openai import OpenAI
@@ -67,6 +68,13 @@ class LLMClient:
         content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
         return content
 
+    def _clean_json_response(self, response: str) -> str:
+        """Strip markdown fences and whitespace from an LLM response."""
+        cleaned = response.strip()
+        cleaned = re.sub(r'^```(?:json)?\s*\n?', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+        return cleaned.strip()
+
     def chat_json(
         self,
         messages: List[Dict[str, str]],
@@ -75,6 +83,8 @@ class LLMClient:
     ) -> Dict[str, Any]:
         """
         Send a chat request and return JSON.
+        Falls back to prompting without response_format if the provider
+        rejects the parameter (e.g. Groq, DeepSeek, local models).
 
         Args:
             messages: List of messages
@@ -84,17 +94,29 @@ class LLMClient:
         Returns:
             Parsed JSON object
         """
-        response = self.chat(
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"}
-        )
-        # Clean up markdown code block markers
-        cleaned_response = response.strip()
-        cleaned_response = re.sub(r'^```(?:json)?\s*\n?', '', cleaned_response, flags=re.IGNORECASE)
-        cleaned_response = re.sub(r'\n?```\s*$', '', cleaned_response)
-        cleaned_response = cleaned_response.strip()
+        logger = logging.getLogger('mirofish.llm')
+
+        # First attempt: use response_format for providers that support it
+        try:
+            response = self.chat(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"}
+            )
+        except Exception as e:
+            error_str = str(e).lower()
+            if any(kw in error_str for kw in ['response_format', 'json_object', 'not supported', 'invalid parameter']):
+                logger.warning("Provider rejected response_format, retrying without it")
+                response = self.chat(
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            else:
+                raise
+
+        cleaned_response = self._clean_json_response(response)
 
         try:
             return json.loads(cleaned_response)
