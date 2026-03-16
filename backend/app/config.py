@@ -64,6 +64,13 @@ class Config:
         'TREND', 'REFRESH', 'DO_NOTHING', 'FOLLOW', 'MUTE'
     ]
 
+    # Forge Bridge configuration
+    FORGE_BRIDGE_ENABLED = os.environ.get('FORGE_BRIDGE_ENABLED', 'false').lower() == 'true'
+    FORGE_SIGNAL_DB_URL = os.environ.get('SIGNAL_DB_URL', '')
+    FORGE_ASSET_DEFAULT = os.environ.get('FORGE_ASSET_DEFAULT', 'BTC-USD')
+    FORGE_ASSET_CLASS_DEFAULT = os.environ.get('FORGE_ASSET_CLASS_DEFAULT', 'crypto_perps')
+    FORGE_TIMEFRAME_DEFAULT = os.environ.get('FORGE_TIMEFRAME_DEFAULT', '4h')
+
     # Report Agent configuration
     try:
         REPORT_AGENT_MAX_TOOL_CALLS = int(os.environ.get('REPORT_AGENT_MAX_TOOL_CALLS', '5'))
