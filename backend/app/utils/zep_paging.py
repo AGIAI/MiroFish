@@ -53,7 +53,8 @@ def _fetch_page_with_retry(
             else:
                 logger.error(f"Zep {page_description} failed after {max_retries} attempts: {str(e)}")
 
-    assert last_exception is not None
+    if last_exception is None:
+        raise RuntimeError(f"All {max_retries} retry attempts failed but no exception was captured")
     raise last_exception
 
 

@@ -6,7 +6,7 @@ Provides simulation report generation, retrieval, conversation, and other endpoi
 import os
 import traceback
 import threading
-from flask import request, jsonify, send_file
+from flask import request, jsonify, send_file, after_this_request
 
 from . import report_bp
 from ..config import Config
@@ -191,7 +191,7 @@ def generate_report():
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -307,7 +307,7 @@ def get_report(report_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -346,7 +346,7 @@ def get_report_by_simulation(simulation_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -386,7 +386,7 @@ def list_reports():
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -415,6 +415,15 @@ def download_report(report_id: str):
                 f.write(report.markdown_content)
                 temp_path = f.name
 
+            # Clean up temp file after the response is sent (per-request, not at shutdown)
+            @after_this_request
+            def _cleanup(response):
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                return response
+
             return send_file(
                 temp_path,
                 as_attachment=True,
@@ -432,7 +441,7 @@ def download_report(report_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -458,7 +467,7 @@ def delete_report(report_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -555,7 +564,7 @@ def chat_with_report_agent():
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -598,7 +607,7 @@ def get_report_progress(report_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -649,7 +658,7 @@ def get_report_sections(report_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -693,7 +702,7 @@ def get_single_section(report_id: str, section_index: int):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -744,7 +753,7 @@ def check_report_status(simulation_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -805,7 +814,7 @@ def get_agent_log(report_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -839,7 +848,7 @@ def stream_agent_log(report_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -887,7 +896,7 @@ def get_console_log(report_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -921,7 +930,7 @@ def stream_console_log(report_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -971,7 +980,7 @@ def search_graph_tool():
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -1011,5 +1020,5 @@ def get_graph_statistics_tool():
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500

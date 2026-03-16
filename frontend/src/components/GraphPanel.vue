@@ -55,7 +55,7 @@
             <span v-if="selectedItem.type === 'node'" class="detail-type-badge" :style="{ background: selectedItem.color, color: '#fff' }">
               {{ selectedItem.entityType }}
             </span>
-            <button class="detail-close" @click="closeDetailPanel">×</button>
+            <button class="detail-close" @click="closeDetailPanel" aria-label="Close detail panel">×</button>
           </div>
           
           <!-- Node Details -->
@@ -117,9 +117,13 @@
                   class="self-loop-item"
                   :class="{ expanded: expandedSelfLoops.has(loop.uuid || idx) }"
                 >
-                  <div 
+                  <div
                     class="self-loop-item-header"
+                    role="button"
+                    tabindex="0"
                     @click="toggleSelfLoop(loop.uuid || idx)"
+                    @keydown.enter="toggleSelfLoop(loop.uuid || idx)"
+                    :aria-label="'Toggle self-loop: ' + (loop.name || loop.fact_type || 'RELATED')"
                   >
                     <span class="self-loop-index">#{{ idx + 1 }}</span>
                     <span class="self-loop-name">{{ loop.name || loop.fact_type || 'RELATED' }}</span>

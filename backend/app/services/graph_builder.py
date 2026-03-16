@@ -301,7 +301,7 @@ class GraphBuilderService:
             batch_num = i // batch_size + 1
             total_batches = (total_chunks + batch_size - 1) // batch_size
 
-            if progress_callback:
+            if progress_callback and total_chunks > 0:
                 progress = (i + len(batch_chunks)) / total_chunks
                 progress_callback(
                     f"Sending batch {batch_num}/{total_batches} ({len(batch_chunks)} chunks)...",
@@ -363,7 +363,7 @@ class GraphBuilderService:
                 if progress_callback:
                     progress_callback(
                         f"Some text chunks timed out, completed {completed_count}/{total_episodes}",
-                        completed_count / total_episodes
+                        (completed_count / total_episodes) if total_episodes > 0 else 0
                     )
                 break
 
@@ -385,11 +385,14 @@ class GraphBuilderService:
             if progress_callback:
                 progress_callback(
                     f"Zep processing... {completed_count}/{total_episodes} done, {len(pending_episodes)} pending ({elapsed}s)",
-                    completed_count / total_episodes if total_episodes > 0 else 0
+                    (completed_count / total_episodes) if total_episodes > 0 else 0
                 )
 
             if pending_episodes:
-                time.sleep(3)  # Check every 3 seconds
+                # Exponential backoff: 3s, 6s, 9s... up to 15s
+                elapsed = time.time() - start_time
+                backoff = min(3 + int(elapsed / 30) * 3, 15)
+                time.sleep(backoff)
 
         if progress_callback:
             progress_callback(f"Processing complete: {completed_count}/{total_episodes}", 1.0)

@@ -642,7 +642,7 @@ class OasisProfileGenerator:
                     result = json.loads(json_str)
                     result["_fixed"] = True
                     return result
-                except:
+                except (json.JSONDecodeError, ValueError, TypeError):
                     pass
 
         # 6. Try to extract partial information from content

@@ -1,29 +1,50 @@
-FROM python:3.11
+# ---- Stage 1: Build frontend static assets ----
+FROM node:18-slim AS frontend-build
 
-# 安装 Node.js （满足 >=18）及必要工具
+WORKDIR /build/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY frontend/ ./
+RUN npm run build
+
+# ---- Stage 2: Production image ----
+FROM python:3.11-slim
+
+# Install system deps required by some Python packages
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends nodejs npm \
+  && apt-get install -y --no-install-recommends tini \
   && rm -rf /var/lib/apt/lists/*
 
-# 从 uv 官方镜像复制 uv
+# Copy uv from official image
 COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /bin/
 
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash mirofish
 WORKDIR /app
 
-# 先复制依赖描述文件以利用缓存
-COPY package.json package-lock.json ./
-COPY frontend/package.json frontend/package-lock.json ./frontend/
+# Install Python dependencies (layer cached)
 COPY backend/pyproject.toml backend/uv.lock ./backend/
+RUN cd backend && uv sync --frozen
 
-# 安装依赖（Node + Python）
-RUN npm ci \
-  && npm ci --prefix frontend \
-  && cd backend && uv sync --frozen
+# Copy backend source
+COPY backend/ ./backend/
 
-# 复制项目源码
-COPY . .
+# Copy pre-built frontend
+COPY --from=frontend-build /build/frontend/dist ./frontend/dist
 
-EXPOSE 3000 5001
+# Create upload directories
+RUN mkdir -p backend/uploads/projects backend/uploads/simulations backend/uploads/reports \
+  && chown -R mirofish:mirofish /app
 
-# 同时启动前后端（开发模式）
-CMD ["npm", "run", "dev"]
+USER mirofish
+
+EXPOSE 5001
+
+# Use tini as init process (proper signal forwarding to child processes)
+ENTRYPOINT ["tini", "--"]
+
+# Production: serve with gunicorn (2 workers, 120s timeout matching LLM call timeout)
+CMD ["sh", "-c", "cd backend && uv run gunicorn --bind 0.0.0.0:5001 --workers 2 --timeout 120 --access-logfile - 'app:create_app()'"]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')" || exit 1

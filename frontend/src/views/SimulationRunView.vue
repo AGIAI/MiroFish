@@ -88,7 +88,7 @@ const viewMode = ref('split')
 // Data State
 const currentSimulationId = ref(route.params.simulationId)
 // Get maxRounds from query params at initialization to ensure child components receive the value immediately
-const maxRounds = ref(route.query.maxRounds ? parseInt(route.query.maxRounds) : null)
+const maxRounds = ref(route.query.maxRounds ? (parseInt(route.query.maxRounds, 10) || null) : null)
 const minutesPerRound = ref(30) // Default 30 minutes per round
 const projectData = ref(null)
 const graphData = ref(null)

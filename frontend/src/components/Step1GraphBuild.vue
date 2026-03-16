@@ -166,6 +166,7 @@
             <span v-if="creatingSimulation" class="spinner-sm"></span>
             {{ creatingSimulation ? 'Creating...' : 'Enter Environment Setup ➝' }}
           </button>
+          <p v-if="simulationError" class="error-text" style="color: #e74c3c; margin-top: 8px; font-size: 0.9em;">{{ simulationError }}</p>
         </div>
       </div>
     </div>
@@ -207,6 +208,7 @@ defineEmits(['next-step'])
 const selectedOntologyItem = ref(null)
 const logContent = ref(null)
 const creatingSimulation = ref(false)
+const simulationError = ref('')
 
 // Enter Environment Setup - create simulation and navigate
 const handleEnterEnvSetup = async () => {
@@ -226,6 +228,7 @@ const handleEnterEnvSetup = async () => {
     })
     
     if (res.success && res.data?.simulation_id) {
+      simulationError.value = ''
       // Navigate to simulation page
       router.push({
         name: 'Simulation',
@@ -233,11 +236,11 @@ const handleEnterEnvSetup = async () => {
       })
     } else {
       console.error('Failed to create simulation:', res.error)
-      alert('Failed to create simulation: ' + (res.error || 'Unknown error'))
+      simulationError.value = 'Failed to create simulation: ' + (res.error || 'Unknown error')
     }
   } catch (err) {
     console.error('Exception creating simulation:', err)
-    alert('Exception creating simulation: ' + err.message)
+    simulationError.value = 'Exception creating simulation: ' + err.message
   } finally {
     creatingSimulation.value = false
   }

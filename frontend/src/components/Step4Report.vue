@@ -1866,11 +1866,14 @@ const truncateText = (text, maxLen) => {
   return text.substring(0, maxLen) + '...'
 }
 
+// Imported from shared utility — uses DOM-based allowlist sanitization
+import { sanitizeHtml } from '../utils/sanitize.js'
+
 const renderMarkdown = (content) => {
   if (!content) return ''
-  
+
   // Remove leading H2 title (## xxx), as section title is shown in outer layer
-  let processedContent = content.replace(/^##\s+.+\n+/, '')
+  let processedContent = sanitizeHtml(content).replace(/^##\s+.+\n+/, '')
   
   // Process code blocks
   let html = processedContent.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>')
@@ -2184,6 +2187,9 @@ onUnmounted(() => {
 
 watch(() => props.reportId, (newId) => {
   if (newId) {
+    // Stop any existing polling before resetting state and starting fresh
+    stopPolling()
+
     agentLogs.value = []
     consoleLogs.value = []
     agentLogLine.value = 0
@@ -2196,7 +2202,7 @@ watch(() => props.reportId, (newId) => {
     collapsedSections.value = new Set()
     isComplete.value = false
     startTime.value = null
-    
+
     startPolling()
   }
 }, { immediate: true })

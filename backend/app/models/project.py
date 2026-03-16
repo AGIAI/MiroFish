@@ -110,8 +110,15 @@ class ProjectManager:
         os.makedirs(cls.PROJECTS_DIR, exist_ok=True)
 
     @classmethod
+    def _validate_id(cls, resource_id: str) -> None:
+        """Validate that an ID is safe for use in file paths (no traversal)."""
+        if not resource_id or '/' in resource_id or '\\' in resource_id or '..' in resource_id:
+            raise ValueError(f"Invalid resource ID: {resource_id}")
+
+    @classmethod
     def _get_project_dir(cls, project_id: str) -> str:
         """Get the project directory path"""
+        cls._validate_id(project_id)
         return os.path.join(cls.PROJECTS_DIR, project_id)
 
     @classmethod
@@ -166,12 +173,11 @@ class ProjectManager:
 
     @classmethod
     def save_project(cls, project: Project) -> None:
-        """Save project metadata"""
+        """Save project metadata (atomic write to prevent corruption on crash)"""
+        from ..utils.atomic_write import atomic_json_write
         project.updated_at = datetime.now().isoformat()
         meta_path = cls._get_project_meta_path(project.project_id)
-
-        with open(meta_path, 'w', encoding='utf-8') as f:
-            json.dump(project.to_dict(), f, ensure_ascii=False, indent=2)
+        atomic_json_write(meta_path, project.to_dict())
 
     @classmethod
     def get_project(cls, project_id: str) -> Optional[Project]:

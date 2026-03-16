@@ -157,7 +157,7 @@
                 <div class="tools-card-name">Report Agent - Chat</div>
                 <div class="tools-card-subtitle">Quick dialog version of the Report Agent, with access to 4 specialized tools and complete MiroFish memory</div>
               </div>
-              <button class="tools-card-toggle" @click="showToolsDetail = !showToolsDetail">
+              <button class="tools-card-toggle" @click="showToolsDetail = !showToolsDetail" aria-label="Toggle tools detail">
                 <svg :class="{ 'is-expanded': showToolsDetail }" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="6 9 12 15 18 9"></polyline>
                 </svg>
@@ -227,7 +227,7 @@
                   <span class="profile-card-profession">{{ selectedAgent.profession || 'Unknown profession' }}</span>
                 </div>
               </div>
-              <button class="profile-card-toggle" @click="showFullProfile = !showFullProfile">
+              <button class="profile-card-toggle" @click="showFullProfile = !showFullProfile" aria-label="Toggle agent profile">
                 <svg :class="{ 'is-expanded': showFullProfile }" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="6 9 12 15 18 9"></polyline>
                 </svg>
@@ -298,10 +298,11 @@
               rows="1"
               ref="chatInputRef"
             ></textarea>
-            <button 
+            <button
               class="send-btn"
               @click="sendMessage"
               :disabled="!chatInput.trim() || isSending || (!selectedAgent && chatTarget === 'agent')"
+              aria-label="Send message"
             >
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -551,10 +552,43 @@ const formatTime = (timestamp) => {
   }
 }
 
+/**
+ * Extract agent response from interview API result.
+ *
+ * Expected API shape (object dict keyed by "<platform>_<agentId>"):
+ *   { result: { results: { "reddit_0": { response: "..." }, "twitter_0": { response: "..." } } } }
+ *
+ * Legacy/fallback shapes also handled:
+ *   - Array: { result: { results: [{ response: "..." }] } }
+ *   - Flat:  { result: { results: { response: "..." } } }
+ */
+const extractAgentResponse = (data, agentId) => {
+  const resultData = data.result || data
+  const resultsDict = resultData.results || resultData
+
+  if (typeof resultsDict === 'object' && !Array.isArray(resultsDict)) {
+    // Dict keyed by "<platform>_<agentId>" — prefer reddit, then twitter, then first entry
+    const redditKey = `reddit_${agentId}`
+    const twitterKey = `twitter_${agentId}`
+    const agentResult = resultsDict[redditKey] || resultsDict[twitterKey] || Object.values(resultsDict)[0]
+    if (agentResult) {
+      return agentResult.response || agentResult.answer || null
+    }
+  } else if (Array.isArray(resultsDict) && resultsDict.length > 0) {
+    return resultsDict[0].response || resultsDict[0].answer || null
+  }
+
+  console.warn('Unexpected interview response structure:', Object.keys(data))
+  return null
+}
+
+// Imported from shared utility — uses DOM-based allowlist sanitization
+import { sanitizeHtml } from '../utils/sanitize.js'
+
 const renderMarkdown = (content) => {
   if (!content) return ''
-  
-  let processedContent = content.replace(/^##\s+.+\n+/, '')
+
+  let processedContent = sanitizeHtml(content).replace(/^##\s+.+\n+/, '')
   let html = processedContent.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>')
   html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
   html = html.replace(/^#### (.+)$/gm, '<h5 class="md-h5">$1</h5>')
@@ -695,9 +729,15 @@ const sendToReportAgent = async (message) => {
   })
   
   if (res.success && res.data) {
+    // Expected API shape: { success: true, data: { response: "..." } }
+    // Fallback keys: data.answer (legacy)
+    const content = res.data.response || res.data.answer
+    if (!content) {
+      console.warn('Report agent response missing expected "response" field:', Object.keys(res.data))
+    }
     chatHistory.value.push({
       role: 'assistant',
-      content: res.data.response || res.data.answer || 'No response',
+      content: content || 'No response',
       timestamp: new Date().toISOString()
     })
     addLog('Report Agent replied')
@@ -733,28 +773,8 @@ const sendToAgent = async (message) => {
   })
   
   if (res.success && res.data) {
-    // Correct data path: res.data.result.results is an object dictionary
-    // Format: {"twitter_0": {...}, "reddit_0": {...}} or single platform {"reddit_0": {...}}
-    const resultData = res.data.result || res.data
-    const resultsDict = resultData.results || resultData
-    
-    // Convert object dict to array, prefer reddit platform replies
-    let responseContent = null
-    const agentId = selectedAgentIndex.value
-    
-    if (typeof resultsDict === 'object' && !Array.isArray(resultsDict)) {
-      // Prefer reddit platform reply, then twitter
-      const redditKey = `reddit_${agentId}`
-      const twitterKey = `twitter_${agentId}`
-      const agentResult = resultsDict[redditKey] || resultsDict[twitterKey] || Object.values(resultsDict)[0]
-      if (agentResult) {
-        responseContent = agentResult.response || agentResult.answer
-      }
-    } else if (Array.isArray(resultsDict) && resultsDict.length > 0) {
-      // Compatible with array format
-      responseContent = resultsDict[0].response || resultsDict[0].answer
-    }
-    
+    const responseContent = extractAgentResponse(res.data, selectedAgentIndex.value)
+
     if (responseContent) {
       chatHistory.value.push({
         role: 'assistant',

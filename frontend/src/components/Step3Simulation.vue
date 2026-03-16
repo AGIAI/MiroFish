@@ -496,7 +496,17 @@ const fetchRunStatus = async () => {
       const data = res.data
       
       runStatus.value = data
-      
+
+      // Detect simulation failure
+      if (data.runner_status === 'failed') {
+        const errorMsg = data.error || 'Simulation failed'
+        addLog(`Simulation failed: ${errorMsg}`)
+        phase.value = 2
+        stopPolling()
+        emit('update-status', 'error')
+        return
+      }
+
       // Detect round changes per platform and log them
       if (data.twitter_current_round > prevTwitterRound.value) {
         addLog(`[Plaza] R${data.twitter_current_round}/${data.total_rounds} | T:${data.twitter_simulated_hours || 0}h | A:${data.twitter_actions_count}`)

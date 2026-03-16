@@ -58,8 +58,8 @@
           <!-- File List -->
           <div class="files-list" v-if="project.files && project.files.length > 0">
             <div 
-              v-for="(file, fileIndex) in project.files.slice(0, 3)" 
-              :key="fileIndex"
+              v-for="file in project.files.slice(0, 3)"
+              :key="file.filename"
               class="file-item"
             >
               <span class="file-tag" :class="getFileType(file.filename)">{{ getFileTypeLabel(file.filename) }}</span>
@@ -119,7 +119,7 @@
                 </span>
                 <span class="modal-create-time">{{ formatDate(selectedProject.created_at) }} {{ formatTime(selectedProject.created_at) }}</span>
               </div>
-              <button class="modal-close" @click="closeModal">×</button>
+              <button class="modal-close" @click="closeModal" aria-label="Close modal">×</button>
             </div>
 
             <!-- Modal Content -->
@@ -134,7 +134,7 @@
               <div class="modal-section">
                 <div class="modal-label">Associated Files</div>
                 <div class="modal-files" v-if="selectedProject.files && selectedProject.files.length > 0">
-                  <div v-for="(file, index) in selectedProject.files" :key="index" class="modal-file-item">
+                  <div v-for="file in selectedProject.files" :key="file.filename" class="modal-file-item">
                     <span class="file-tag" :class="getFileType(file.filename)">{{ getFileTypeLabel(file.filename) }}</span>
                     <span class="modal-file-name">{{ file.filename }}</span>
                   </div>

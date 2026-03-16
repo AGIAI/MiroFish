@@ -10,6 +10,9 @@ from flask import request, jsonify
 
 from . import graph_bp
 from ..config import Config
+
+# Maximum allowed length for user-supplied text fields sent to LLM prompts
+MAX_REQUIREMENT_LENGTH = 10000
 from ..services.ontology_generator import OntologyGenerator
 from ..services.graph_builder import GraphBuilderService
 from ..services.text_processor import TextProcessor
@@ -162,6 +165,12 @@ def generate_ontology():
                 "success": False,
                 "error": "Please provide simulation_requirement"
             }), 400
+
+        if len(simulation_requirement) > MAX_REQUIREMENT_LENGTH:
+            return jsonify({
+                "success": False,
+                "error": f"simulation_requirement exceeds maximum length ({MAX_REQUIREMENT_LENGTH} chars)"
+            }), 400
         
         # Get uploaded files
         uploaded_files = request.files.getlist('files')
@@ -250,7 +259,7 @@ def generate_ontology():
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -339,6 +348,28 @@ def build_graph():
         graph_name = data.get('graph_name', project.name or 'MiroFish Graph')
         chunk_size = data.get('chunk_size', project.chunk_size or Config.DEFAULT_CHUNK_SIZE)
         chunk_overlap = data.get('chunk_overlap', project.chunk_overlap or Config.DEFAULT_CHUNK_OVERLAP)
+
+        # Validate chunk parameters
+        try:
+            chunk_size = int(chunk_size)
+            chunk_overlap = int(chunk_overlap)
+        except (TypeError, ValueError):
+            return jsonify({
+                "success": False,
+                "error": "chunk_size and chunk_overlap must be integers"
+            }), 400
+
+        if chunk_size < 50 or chunk_size > 10000:
+            return jsonify({
+                "success": False,
+                "error": "chunk_size must be between 50 and 10000"
+            }), 400
+
+        if chunk_overlap < 0 or chunk_overlap >= chunk_size:
+            return jsonify({
+                "success": False,
+                "error": "chunk_overlap must be >= 0 and less than chunk_size"
+            }), 400
         
         # Update project configuration
         project.chunk_size = chunk_size
@@ -374,6 +405,18 @@ def build_graph():
         def build_task():
             build_logger = get_logger('mirofish.build')
             try:
+                # Re-load the project from disk to avoid stale closure reference.
+                # The request thread may have already returned and the original
+                # `project` object could be mutated by subsequent requests.
+                project = ProjectManager.get_project(project_id)
+                if not project:
+                    task_manager.update_task(
+                        task_id,
+                        status=TaskStatus.FAILED,
+                        message=f"Project not found: {project_id}"
+                    )
+                    return
+
                 build_logger.info(f"[{task_id}] Starting graph build...")
                 task_manager.update_task(
                     task_id,
@@ -520,7 +563,7 @@ def build_graph():
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -585,7 +628,7 @@ def get_graph_data(graph_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
 
 
@@ -613,5 +656,5 @@ def delete_graph(graph_id: str):
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": traceback.format_exc()
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
