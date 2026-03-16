@@ -2709,3 +2709,88 @@ def close_simulation_env():
             "error": str(e),
             **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
         }), 500
+
+
+# ============== Forge Bridge Signal Endpoint ==============
+
+@simulation_bp.route('/<simulation_id>/forge-signal', methods=['GET'])
+def get_forge_signal(simulation_id: str):
+    """
+    Returns structured signal data for Forge Signal Bridge consumption.
+
+    This endpoint provides the raw data needed by the Signal Bridge to
+    extract quantified trading signals from a completed simulation.
+
+    Returns:
+        - simulation config (agent profiles, timing, topic)
+        - action logs from both platforms
+        - project metadata for document provenance
+    """
+    try:
+        sim_manager = SimulationManager()
+        simulation = sim_manager.get_simulation(simulation_id)
+
+        if not simulation:
+            return jsonify({"success": False, "error": "Simulation not found"}), 404
+
+        sim_dir = os.path.join(Config.OASIS_SIMULATION_DATA_DIR, simulation_id)
+
+        # Load simulation config
+        config_path = os.path.join(sim_dir, 'simulation_config.json')
+        sim_config = {}
+        if os.path.exists(config_path):
+            import json
+            with open(config_path, 'r', encoding='utf-8') as f:
+                sim_config = json.load(f)
+
+        # Load actions from both platforms
+        actions = {"twitter": [], "reddit": []}
+        for platform in ("twitter", "reddit"):
+            actions_path = os.path.join(sim_dir, platform, 'actions.jsonl')
+            if os.path.exists(actions_path):
+                import json
+                with open(actions_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                actions[platform].append(json.loads(line))
+                            except json.JSONDecodeError:
+                                continue
+
+        # Get project info for document provenance
+        project_id = simulation.get('project_id', '')
+        project_manager = ProjectManager()
+        project = project_manager.get_project(project_id) if project_id else None
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "simulation_id": simulation_id,
+                "status": simulation.get('status', 'unknown'),
+                "project_id": project_id,
+                "config": sim_config,
+                "actions": actions,
+                "total_actions": {
+                    "twitter": len(actions["twitter"]),
+                    "reddit": len(actions["reddit"]),
+                },
+                "project_metadata": {
+                    "requirement": project.get('requirement', '') if project else '',
+                    "created_at": project.get('created_at', '') if project else '',
+                } if project else None,
+                "forge_bridge": {
+                    "asset_default": Config.FORGE_ASSET_DEFAULT,
+                    "asset_class_default": Config.FORGE_ASSET_CLASS_DEFAULT,
+                    "timeframe_default": Config.FORGE_TIMEFRAME_DEFAULT,
+                },
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to get forge signal data: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            **({"traceback": traceback.format_exc()} if Config.DEBUG else {})
+        }), 500

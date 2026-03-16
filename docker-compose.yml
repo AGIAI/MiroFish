@@ -12,3 +12,62 @@ services:
     restart: unless-stopped
     volumes:
       - ./backend/uploads:/app/backend/uploads
+      - mirofish_signals:/app/backend/uploads/signals
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # Forge Signal Bridge — extracts quantified trading signals from MiroFish
+  # swarm simulations and pushes them to TimescaleDB for Forge consumption.
+  signal-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile.bridge
+    container_name: mirofish-signal-bridge
+    env_file:
+      - .env
+    environment:
+      - MIROFISH_URL=http://mirofish:5001
+      - MIROFISH_UPLOADS_DIR=/app/signals
+      - SIGNAL_DB_URL=postgresql://forge:${SIGNAL_DB_PASSWORD:-forge_dev}@signal-db:5432/forge_signals
+      - POLL_INTERVAL_SECONDS=300
+      - BRIDGE_LOG_LEVEL=INFO
+      - CALIBRATION_PERSISTENCE_DIR=/app/data/calibration
+    depends_on:
+      mirofish:
+        condition: service_healthy
+      signal-db:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - mirofish_signals:/app/signals:ro
+      - bridge_data:/app/data
+
+  # TimescaleDB — shared signal database for MiroFish → Forge pipeline.
+  # Stores signals, calibration history, strategy cemetery, and validation results.
+  signal-db:
+    image: timescale/timescaledb:latest-pg16
+    container_name: mirofish-signal-db
+    environment:
+      - POSTGRES_DB=forge_signals
+      - POSTGRES_USER=forge
+      - POSTGRES_PASSWORD=${SIGNAL_DB_PASSWORD:-forge_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - signal_db_data:/var/lib/postgresql/data
+      - ./backend/forge_bridge/schema/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge -d forge_signals"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  signal_db_data:
+  mirofish_signals:
+  bridge_data:
