@@ -178,6 +178,27 @@ docker compose up -d
 
 Exposes ports 3000 (frontend) and 5001 (backend). Upload data persists in `./backend/uploads/`.
 
+### Production Deployment
+
+The Dockerfile uses a multi-stage build optimized for production:
+
+- **Stage 1**: Builds frontend static assets with Node 18
+- **Stage 2**: Runs backend with gunicorn (2 workers, 120s timeout)
+- Uses `tini` as PID 1 for proper signal forwarding to simulation subprocesses
+- Runs as non-root `mirofish` user
+- Includes Docker HEALTHCHECK against `/health` endpoint
+
+```bash
+docker build -t mirofish:latest .
+docker run -d --name mirofish \
+  --env-file .env \
+  -p 5001:5001 \
+  -v ./backend/uploads:/app/backend/uploads \
+  mirofish:latest
+```
+
+**Note**: In production, serve the frontend static assets (`frontend/dist/`) via a reverse proxy (nginx/Caddy) pointed at the backend on port 5001. Set `SECRET_KEY` and `CORS_ORIGINS` explicitly.
+
 ## Configuration
 
 ### Required
