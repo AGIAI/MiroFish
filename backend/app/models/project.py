@@ -110,8 +110,15 @@ class ProjectManager:
         os.makedirs(cls.PROJECTS_DIR, exist_ok=True)
 
     @classmethod
+    def _validate_id(cls, resource_id: str) -> None:
+        """Validate that an ID is safe for use in file paths (no traversal)."""
+        if not resource_id or '/' in resource_id or '\\' in resource_id or '..' in resource_id:
+            raise ValueError(f"Invalid resource ID: {resource_id}")
+
+    @classmethod
     def _get_project_dir(cls, project_id: str) -> str:
         """Get the project directory path"""
+        cls._validate_id(project_id)
         return os.path.join(cls.PROJECTS_DIR, project_id)
 
     @classmethod

@@ -1934,7 +1934,9 @@ class ReportManager:
     
     @classmethod
     def _get_report_folder(cls, report_id: str) -> str:
-        """Get report folder path"""
+        """Get report folder path (validates ID to prevent path traversal)"""
+        if not report_id or '/' in report_id or '\\' in report_id or '..' in report_id:
+            raise ValueError(f"Invalid report ID: {report_id}")
         return os.path.join(cls.REPORTS_DIR, report_id)
     
     @classmethod

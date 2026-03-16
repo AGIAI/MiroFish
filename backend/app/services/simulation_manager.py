@@ -137,8 +137,15 @@ class SimulationManager:
         self._simulations: Dict[str, SimulationState] = {}
         self._lock = threading.Lock()
 
+    @staticmethod
+    def _validate_id(resource_id: str) -> None:
+        """Validate that an ID is safe for use in file paths (no traversal)."""
+        if not resource_id or '/' in resource_id or '\\' in resource_id or '..' in resource_id:
+            raise ValueError(f"Invalid resource ID: {resource_id}")
+
     def _get_simulation_dir(self, simulation_id: str) -> str:
         """Get simulation data directory"""
+        self._validate_id(simulation_id)
         sim_dir = os.path.join(self.SIMULATION_DATA_DIR, simulation_id)
         os.makedirs(sim_dir, exist_ok=True)
         return sim_dir
