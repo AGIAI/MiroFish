@@ -204,6 +204,12 @@
             <p class="waiting-hint">Data will appear shortly...</p>
           </div>
           
+          <!-- Graph fetch error state -->
+          <div v-else-if="graphFetchError && currentPhase >= 2" class="graph-error">
+            <span class="error-icon">⚠</span>
+            <p>{{ graphFetchError }}</p>
+          </div>
+
           <!-- Error state -->
           <div v-else-if="error" class="graph-error">
             <span class="error-icon">⚠</span>
@@ -430,6 +436,7 @@ const graphLoading = ref(false)
 const error = ref('')
 const projectData = ref(null)
 const graphData = ref(null)
+const graphFetchError = ref('')
 const buildProgress = ref(null)
 const ontologyProgress = ref(null) // Ontology generation progress
 const currentPhase = ref(-1) // -1: Uploading, 0: Ontology generation, 1: Graph building, 2: Complete
@@ -750,6 +757,7 @@ const fetchGraphData = async () => {
       const graphResponse = await getGraphData(graphId)
       
       if (graphResponse.success && graphResponse.data) {
+        graphFetchError.value = ''
         const newData = graphResponse.data
         const newNodeCount = newData.node_count || newData.nodes?.length || 0
         const oldNodeCount = graphData.value?.node_count || graphData.value?.nodes?.length || 0
@@ -765,7 +773,9 @@ const fetchGraphData = async () => {
       }
     }
   } catch (err) {
-    console.log('Graph data fetch:', err.message || 'not ready')
+    const msg = err.message || 'not ready'
+    console.warn('Graph data fetch:', msg)
+    graphFetchError.value = `Failed to load graph data: ${msg}`
   }
 }
 
