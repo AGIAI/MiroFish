@@ -54,15 +54,26 @@ def create_app(config_class=Config):
         logger.info("Simulation process cleanup function registered")
 
     # Request logging middleware with correlation ID
+    # Fields to redact from request body logs
+    _SENSITIVE_KEYS = {'api_key', 'password', 'secret', 'token', 'authorization'}
+
     @app.before_request
     def log_request():
         # Set correlation ID from header or generate a new one
         cid = request.headers.get('X-Correlation-ID') or None
         set_correlation_id(cid)
-        logger = get_logger('mirofish.request')
-        logger.debug(f"Request: {request.method} {request.path}")
+        req_logger = get_logger('mirofish.request')
+        req_logger.debug(f"Request: {request.method} {request.path}")
         if request.content_type and 'json' in request.content_type:
-            logger.debug(f"Request body: {request.get_json(silent=True)}")
+            body = request.get_json(silent=True)
+            if body and isinstance(body, dict):
+                safe_body = {
+                    k: ('***' if k.lower() in _SENSITIVE_KEYS else v)
+                    for k, v in body.items()
+                }
+                req_logger.debug(f"Request body: {safe_body}")
+            else:
+                req_logger.debug(f"Request body: {body}")
 
     @app.after_request
     def log_response(response):
@@ -123,10 +134,23 @@ def create_app(config_class=Config):
     if not os.environ.get('SECRET_KEY'):
         logger.warning("SECRET_KEY not set in environment; using random key (sessions will not persist across restarts)")
 
-    # Error handlers
+    # Error handlers — always return JSON, never HTML
+    @app.errorhandler(404)
+    def not_found(error):
+        return {'success': False, 'error': 'Endpoint not found'}, 404
+
+    @app.errorhandler(405)
+    def method_not_allowed(error):
+        return {'success': False, 'error': 'Method not allowed'}, 405
+
     @app.errorhandler(413)
     def request_entity_too_large(error):
         return {'success': False, 'error': 'Request payload too large (max 50MB)'}, 413
+
+    @app.errorhandler(500)
+    def internal_server_error(error):
+        logger.error(f"Internal server error: {error}")
+        return {'success': False, 'error': 'Internal server error'}, 500
 
     if should_log_startup:
         logger.info("MiroFish Backend startup complete")

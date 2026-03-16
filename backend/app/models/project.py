@@ -166,12 +166,11 @@ class ProjectManager:
 
     @classmethod
     def save_project(cls, project: Project) -> None:
-        """Save project metadata"""
+        """Save project metadata (atomic write to prevent corruption on crash)"""
+        from ..utils.atomic_write import atomic_json_write
         project.updated_at = datetime.now().isoformat()
         meta_path = cls._get_project_meta_path(project.project_id)
-
-        with open(meta_path, 'w', encoding='utf-8') as f:
-            json.dump(project.to_dict(), f, ensure_ascii=False, indent=2)
+        atomic_json_write(meta_path, project.to_dict())
 
     @classmethod
     def get_project(cls, project_id: str) -> Optional[Project]:

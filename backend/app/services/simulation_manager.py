@@ -7,6 +7,7 @@ Uses preset scripts + LLM-powered intelligent configuration generation
 import os
 import json
 import shutil
+import threading
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -132,8 +133,9 @@ class SimulationManager:
         # Ensure directory exists
         os.makedirs(self.SIMULATION_DATA_DIR, exist_ok=True)
 
-        # In-memory simulation state cache
+        # In-memory simulation state cache (protected by _lock)
         self._simulations: Dict[str, SimulationState] = {}
+        self._lock = threading.Lock()
 
     def _get_simulation_dir(self, simulation_id: str) -> str:
         """Get simulation data directory"""
@@ -142,21 +144,22 @@ class SimulationManager:
         return sim_dir
 
     def _save_simulation_state(self, state: SimulationState):
-        """Save simulation state to file"""
+        """Save simulation state to file (atomic write to prevent corruption on crash)"""
+        from ..utils.atomic_write import atomic_json_write
         sim_dir = self._get_simulation_dir(state.simulation_id)
         state_file = os.path.join(sim_dir, "state.json")
 
         state.updated_at = datetime.now().isoformat()
+        atomic_json_write(state_file, state.to_dict())
 
-        with open(state_file, 'w', encoding='utf-8') as f:
-            json.dump(state.to_dict(), f, ensure_ascii=False, indent=2)
-
-        self._simulations[state.simulation_id] = state
+        with self._lock:
+            self._simulations[state.simulation_id] = state
 
     def _load_simulation_state(self, simulation_id: str) -> Optional[SimulationState]:
         """Load simulation state from file"""
-        if simulation_id in self._simulations:
-            return self._simulations[simulation_id]
+        with self._lock:
+            if simulation_id in self._simulations:
+                return self._simulations[simulation_id]
 
         sim_dir = self._get_simulation_dir(simulation_id)
         state_file = os.path.join(sim_dir, "state.json")
@@ -187,7 +190,8 @@ class SimulationManager:
             error=data.get("error"),
         )
 
-        self._simulations[simulation_id] = state
+        with self._lock:
+            self._simulations[simulation_id] = state
         return state
 
     def create_simulation(

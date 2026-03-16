@@ -215,7 +215,10 @@ class SimulationRunner:
         '../../scripts'
     )
 
-    # In-memory run states
+    # Thread lock for class-level mutable state
+    _lock = threading.Lock()
+
+    # In-memory run states (all protected by _lock)
     _run_states: Dict[str, SimulationRunState] = {}
     _processes: Dict[str, subprocess.Popen] = {}
     _action_queues: Dict[str, Queue] = {}
@@ -296,15 +299,14 @@ class SimulationRunner:
 
     @classmethod
     def _save_run_state(cls, state: SimulationRunState):
-        """Save run state to file"""
+        """Save run state to file (atomic write to prevent corruption on crash)"""
+        from ..utils.atomic_write import atomic_json_write
         sim_dir = os.path.join(cls.RUN_STATE_DIR, state.simulation_id)
         os.makedirs(sim_dir, exist_ok=True)
         state_file = os.path.join(sim_dir, "run_state.json")
 
         data = state.to_detail_dict()
-
-        with open(state_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        atomic_json_write(state_file, data)
 
         cls._run_states[state.simulation_id] = state
 
