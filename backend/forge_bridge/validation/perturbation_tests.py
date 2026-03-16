@@ -72,7 +72,7 @@ def time_shift_test(
     base_sharpe = base_result["sharpe"]
 
     shifted = prices.copy()
-    shifted["close"] = shifted["close"].shift(shift_bars).fillna(method="bfill")
+    shifted["close"] = shifted["close"].shift(shift_bars).bfill()
 
     shifted_result = strategy.backtest(train=shifted, test=shifted)
     shifted_sharpe = shifted_result["sharpe"]
