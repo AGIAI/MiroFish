@@ -19,15 +19,15 @@ WORKDIR /app
 
 # Install Python dependencies
 COPY backend/forge_bridge/pyproject.toml ./
-RUN uv sync --frozen 2>/dev/null || uv pip install \
-    psycopg2-binary>=2.9.0 \
-    numpy>=1.24.0 \
-    scipy>=1.10.0 \
-    scikit-learn>=1.3.0 \
-    pandas>=2.0.0 \
-    openai>=1.0.0 \
-    requests>=2.31.0 \
-    pyyaml>=6.0
+RUN uv pip install --system \
+    "psycopg2-binary>=2.9.0" \
+    "numpy>=1.24.0" \
+    "scipy>=1.10.0" \
+    "scikit-learn>=1.3.0" \
+    "pandas>=2.0.0" \
+    "openai>=1.0.0" \
+    "requests>=2.31.0" \
+    "pyyaml>=6.0"
 
 # Copy bridge source
 COPY backend/forge_bridge/ ./forge_bridge/
