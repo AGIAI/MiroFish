@@ -198,17 +198,19 @@ const refreshGraph = () => {
   }
 }
 
-// Watch route params
+// Watch route params — { immediate: true } handles initial mount load
 watch(() => route.params.reportId, (newId) => {
   if (newId && newId !== currentReportId.value) {
     currentReportId.value = newId
+    loadReportData()
+  } else if (newId && newId === currentReportId.value && !reportData.value) {
+    // Initial mount: currentReportId already matches but data not loaded yet
     loadReportData()
   }
 }, { immediate: true })
 
 onMounted(() => {
   addLog('ReportView initialized')
-  loadReportData()
 })
 </script>
 

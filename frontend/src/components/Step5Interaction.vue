@@ -582,18 +582,8 @@ const extractAgentResponse = (data, agentId) => {
   return null
 }
 
-const sanitizeHtml = (text) => {
-  if (!text) return ''
-  // Strip script/iframe/object/embed tags and their content
-  let s = text.replace(/<(script|iframe|object|embed|form|input|textarea|button)[^>]*>[\s\S]*?<\/\1>/gi, '')
-  s = s.replace(/<(script|iframe|object|embed|form|input|textarea|button)[^>]*\/?>/gi, '')
-  // Strip event handler attributes (on*)
-  s = s.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-  // Strip javascript: URLs
-  s = s.replace(/href\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, '')
-  s = s.replace(/src\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, '')
-  return s
-}
+// Imported from shared utility — uses DOM-based allowlist sanitization
+import { sanitizeHtml } from '../utils/sanitize.js'
 
 const renderMarkdown = (content) => {
   if (!content) return ''
