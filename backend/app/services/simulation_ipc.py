@@ -18,6 +18,7 @@ from datetime import datetime
 from enum import Enum
 
 from ..utils.logger import get_logger
+from ..utils.atomic_write import atomic_json_write
 
 logger = get_logger('mirofish.simulation_ipc')
 
@@ -150,10 +151,9 @@ class SimulationIPCClient:
             args=args
         )
 
-        # Write command file
+        # Write command file atomically to prevent partial reads
         command_file = os.path.join(self.commands_dir, f"{command_id}.json")
-        with open(command_file, 'w', encoding='utf-8') as f:
-            json.dump(command.to_dict(), f, ensure_ascii=False, indent=2)
+        atomic_json_write(command_file, command.to_dict())
 
         logger.info(f"Sent IPC command: {command_type.value}, command_id={command_id}")
 
@@ -328,13 +328,12 @@ class SimulationIPCServer:
         self._update_env_status("stopped")
 
     def _update_env_status(self, status: str):
-        """Update environment status file"""
+        """Update environment status file atomically"""
         status_file = os.path.join(self.simulation_dir, "env_status.json")
-        with open(status_file, 'w', encoding='utf-8') as f:
-            json.dump({
-                "status": status,
-                "timestamp": datetime.now().isoformat()
-            }, f, ensure_ascii=False, indent=2)
+        atomic_json_write(status_file, {
+            "status": status,
+            "timestamp": datetime.now().isoformat()
+        })
 
     def poll_commands(self) -> Optional[IPCCommand]:
         """
@@ -374,8 +373,7 @@ class SimulationIPCServer:
             response: IPC response
         """
         response_file = os.path.join(self.responses_dir, f"{response.command_id}.json")
-        with open(response_file, 'w', encoding='utf-8') as f:
-            json.dump(response.to_dict(), f, ensure_ascii=False, indent=2)
+        atomic_json_write(response_file, response.to_dict())
 
         # Delete the command file
         command_file = os.path.join(self.commands_dir, f"{response.command_id}.json")

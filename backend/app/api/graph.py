@@ -405,6 +405,18 @@ def build_graph():
         def build_task():
             build_logger = get_logger('mirofish.build')
             try:
+                # Re-load the project from disk to avoid stale closure reference.
+                # The request thread may have already returned and the original
+                # `project` object could be mutated by subsequent requests.
+                project = ProjectManager.get_project(project_id)
+                if not project:
+                    task_manager.update_task(
+                        task_id,
+                        status=TaskStatus.FAILED,
+                        message=f"Project not found: {project_id}"
+                    )
+                    return
+
                 build_logger.info(f"[{task_id}] Starting graph build...")
                 task_manager.update_task(
                     task_id,

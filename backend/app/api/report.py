@@ -6,7 +6,7 @@ Provides simulation report generation, retrieval, conversation, and other endpoi
 import os
 import traceback
 import threading
-from flask import request, jsonify, send_file
+from flask import request, jsonify, send_file, after_this_request
 
 from . import report_bp
 from ..config import Config
@@ -411,13 +411,18 @@ def download_report(report_id: str):
         if not os.path.exists(md_path):
             # If MD file does not exist, generate a temporary file
             import tempfile
-            import atexit
             with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
                 f.write(report.markdown_content)
                 temp_path = f.name
 
-            # Schedule cleanup after response is sent
-            atexit.register(lambda p=temp_path: os.unlink(p) if os.path.exists(p) else None)
+            # Clean up temp file after the response is sent (per-request, not at shutdown)
+            @after_this_request
+            def _cleanup(response):
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                return response
 
             return send_file(
                 temp_path,

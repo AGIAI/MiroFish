@@ -384,6 +384,13 @@ class ReportConsoleLogger:
         """Ensure file handler is closed on destruction"""
         self.close()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
 
 class ReportStatus(str, Enum):
     """Report status"""
@@ -959,6 +966,10 @@ class ReportAgent:
         """
         Execute tool call with timeout protection.
 
+        Uses a shared thread pool instead of creating one per call to avoid
+        thread accumulation. Note: the background thread continues running
+        after timeout (Python limitation), but the pool is bounded.
+
         Args:
             tool_name: Tool name
             parameters: Tool parameters
@@ -971,10 +982,15 @@ class ReportAgent:
 
         logger.info(f"Executing tool: {tool_name}, parameters: {parameters}")
 
+        # Lazily create a shared executor for this agent instance
+        if not hasattr(self, '_tool_executor') or self._tool_executor is None:
+            self._tool_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=2, thread_name_prefix="report-tool"
+            )
+
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(self._execute_tool_inner, tool_name, parameters, report_context)
-                return future.result(timeout=self.TOOL_CALL_TIMEOUT)
+            future = self._tool_executor.submit(self._execute_tool_inner, tool_name, parameters, report_context)
+            return future.result(timeout=self.TOOL_CALL_TIMEOUT)
         except concurrent.futures.TimeoutError:
             logger.error(f"Tool {tool_name} timed out after {self.TOOL_CALL_TIMEOUT}s")
             return f"Tool execution timed out after {self.TOOL_CALL_TIMEOUT} seconds"
@@ -1305,7 +1321,11 @@ class ReportAgent:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
-        
+
+        # Maximum number of conversation messages to keep (system + initial user + recent exchanges)
+        # Prevents unbounded memory growth in the ReACT loop
+        MAX_MESSAGES = 20
+
         # ReACT loop
         tool_calls_count = 0
         max_iterations = 5  # Maximum iteration rounds
@@ -1325,6 +1345,11 @@ class ReportAgent:
                     f"Deep retrieval and writing ({tool_calls_count}/{self.MAX_TOOL_CALLS_PER_SECTION})"
                 )
             
+            # Trim messages to prevent unbounded growth while keeping
+            # system prompt (index 0) and initial user prompt (index 1)
+            if len(messages) > MAX_MESSAGES:
+                messages = messages[:2] + messages[-(MAX_MESSAGES - 2):]
+
             # Call LLM
             response = self.llm.chat(
                 messages=messages,
@@ -1755,23 +1780,18 @@ class ReportAgent:
                 progress_callback("completed", 100, "Report generation complete")
             
             logger.info(f"Report generation complete: {report_id}")
-            
-            # Close console logger
-            if self.console_logger:
-                self.console_logger.close()
-                self.console_logger = None
-            
+
             return report
-            
+
         except Exception as e:
             logger.error(f"Report generation failed: {str(e)}")
             report.status = ReportStatus.FAILED
             report.error = str(e)
-            
+
             # Record error log
             if self.report_logger:
                 self.report_logger.log_error(str(e), "failed")
-            
+
             # Save failed state
             try:
                 ReportManager.save_report(report)
@@ -1781,13 +1801,18 @@ class ReportAgent:
                 )
             except Exception:
                 pass  # Ignore save failure errors
-            
-            # Close console logger
+
+            return report
+        finally:
+            # Always detach the file handler from global loggers to prevent
+            # cross-contamination between concurrent report generations
             if self.console_logger:
                 self.console_logger.close()
                 self.console_logger = None
-            
-            return report
+            # Shut down the shared tool executor to release threads
+            if hasattr(self, '_tool_executor') and self._tool_executor is not None:
+                self._tool_executor.shutdown(wait=False)
+                self._tool_executor = None
     
     def chat(
         self, 

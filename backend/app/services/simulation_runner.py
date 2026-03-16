@@ -215,6 +215,9 @@ class SimulationRunner:
         '../../scripts'
     )
 
+    # Maximum number of concurrent simulations to prevent resource exhaustion
+    MAX_CONCURRENT_SIMULATIONS = 5
+
     # Thread lock for class-level mutable state
     _lock = threading.Lock()
 
@@ -342,6 +345,18 @@ class SimulationRunner:
         if existing and existing.runner_status in [RunnerStatus.RUNNING, RunnerStatus.STARTING]:
             raise ValueError(f"Simulation is already running: {simulation_id}")
 
+        # Enforce concurrent simulation limit to prevent resource exhaustion
+        with cls._lock:
+            active_count = sum(
+                1 for p in cls._processes.values()
+                if p.poll() is None  # process still alive
+            )
+        if active_count >= cls.MAX_CONCURRENT_SIMULATIONS:
+            raise ValueError(
+                f"Maximum concurrent simulations reached ({cls.MAX_CONCURRENT_SIMULATIONS}). "
+                f"Please wait for a running simulation to complete."
+            )
+
         # Load simulation configuration
         sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
         config_path = os.path.join(sim_dir, "simulation_config.json")
@@ -412,13 +427,9 @@ class SimulationRunner:
         cls._action_queues[simulation_id] = action_queue
 
         # Start simulation process
+        main_log_file = None
         try:
             # Build run command using full paths
-            # New log structure:
-            #   twitter/actions.jsonl - Twitter action log
-            #   reddit/actions.jsonl  - Reddit action log
-            #   simulation.log        - Main process log
-
             cmd = [
                 sys.executable,  # Python interpreter
                 script_path,
@@ -434,28 +445,26 @@ class SimulationRunner:
             main_log_file = open(main_log_path, 'w', encoding='utf-8')
 
             # Set subprocess environment variables, ensure UTF-8 encoding on Windows
-            # This fixes encoding issues in third-party libraries (like OASIS) that don't specify encoding when reading files
             env = os.environ.copy()
-            env['PYTHONUTF8'] = '1'  # Python 3.7+ support, makes all open() default to UTF-8
-            env['PYTHONIOENCODING'] = 'utf-8'  # Ensure stdout/stderr use UTF-8
+            env['PYTHONUTF8'] = '1'
+            env['PYTHONIOENCODING'] = 'utf-8'
 
-            # Set working directory to simulation directory (databases etc. will be generated here)
-            # Use start_new_session=True to create a new process group, ensuring all child processes can be terminated via os.killpg
+            # Use start_new_session=True to create a new process group
             process = subprocess.Popen(
                 cmd,
                 cwd=sim_dir,
                 stdout=main_log_file,
-                stderr=subprocess.STDOUT,  # stderr also writes to same file
+                stderr=subprocess.STDOUT,
                 text=True,
-                encoding='utf-8',  # Explicitly specify encoding
+                encoding='utf-8',
                 bufsize=1,
-                env=env,  # Pass environment variables with UTF-8 settings
-                start_new_session=True,  # Create new process group to ensure all related processes can be terminated on server shutdown
+                env=env,
+                start_new_session=True,
             )
 
             # Save file handles for later closing
             cls._stdout_files[simulation_id] = main_log_file
-            cls._stderr_files[simulation_id] = None  # No longer need separate stderr
+            cls._stderr_files[simulation_id] = None
 
             state.process_pid = process.pid
             state.runner_status = RunnerStatus.RUNNING
@@ -474,6 +483,12 @@ class SimulationRunner:
             logger.info(f"Simulation started successfully: {simulation_id}, pid={process.pid}, platform={platform}")
 
         except Exception as e:
+            # Close the log file handle if Popen failed to prevent leak
+            if main_log_file is not None and simulation_id not in cls._stdout_files:
+                try:
+                    main_log_file.close()
+                except OSError:
+                    pass
             state.runner_status = RunnerStatus.FAILED
             state.error = str(e)
             cls._save_run_state(state)
